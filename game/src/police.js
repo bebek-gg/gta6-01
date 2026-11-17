@@ -95,6 +95,9 @@ export class Police {
     }
     this.siren(this.stars > 0);
     // foot cops chase
+    // one shared bust timer: it fills while ANY cop is on the player and
+    // only drains when NO cop is close (a far cop must not cancel a near one)
+    let anyCopClose = false;
     for (const c of this.cops) {
       if (c.down) {
         c.downTimer -= dt;
@@ -122,11 +125,14 @@ export class Police {
       c.legL.rotation.x = sw; c.legR.rotation.x = -sw;
       c.group.position.set(c.x, 0, c.z);
       c.group.rotation.y = c.heading;
-      // bust: cop reaches a slow player on foot
-      if (!world.inCar && d < 2.2 && world.playerSpeed < 3) {
-        this.bustTimer += dt;
-        if (this.bustTimer > 1.0) { this.bustTimer = 0; world.onBusted && world.onBusted(); }
-      } else if (d > 4) this.bustTimer = Math.max(0, this.bustTimer - dt * 2);
+      // bust: this cop has reached a slow player on foot
+      if (!world.inCar && d < 2.2 && world.playerSpeed < 3) anyCopClose = true;
+    }
+    if (anyCopClose) {
+      this.bustTimer += dt;
+      if (this.bustTimer > 1.0) { this.bustTimer = 0; world.onBusted && world.onBusted(); }
+    } else {
+      this.bustTimer = Math.max(0, this.bustTimer - dt * 2);
     }
     // police cars chase (direct steering + slide + unstuck)
     for (const car of this.cars) {

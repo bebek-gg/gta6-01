@@ -1,6 +1,7 @@
 // hud.js — DOM HUD: cash, wanted stars, health, speed, objective, timer,
 // prompts, toasts, overlays, and the canvas minimap.
 import { fmtCash, fmtTime } from './utils.js';
+import { LANDMARKS } from './city.js';
 
 const RANKS = [[0, 'WHEELMAN'], [1500, 'HUSTLER'], [4000, 'MADE'], [10000, 'KINGPIN OF SOLMAR']];
 
@@ -77,17 +78,23 @@ export class HUD {
   drawMinimap(world) {
     const g = this.mm, S = 210;
     g.clearRect(0, 0, S, S);
-    g.fillStyle = '#0e1626'; g.fillRect(0, 0, S, S);
+    g.fillStyle = '#16233a'; g.fillRect(0, 0, S, S);
     const px = (x) => (x + 290) / 530 * S, pz = (z) => (z + 240) / 480 * S;
     g.fillStyle = '#2f7fb8'; g.fillRect(0, 0, px(-272), S); // ocean
     g.fillStyle = '#c2a878'; g.fillRect(px(-272), 0, px(-229) - px(-272), S); // beach
-    g.strokeStyle = '#4a5160'; g.lineWidth = 5; // roads
+    g.strokeStyle = '#7a8296'; g.lineWidth = 6; // roads
     for (let i = 0; i < 7; i++) {
       const c = -222 + i * 74;
       g.beginPath(); g.moveTo(px(c), 0); g.lineTo(px(c), S); g.stroke();
       g.beginPath(); g.moveTo(0, pz(c)); g.lineTo(S, pz(c)); g.stroke();
     }
     g.fillStyle = '#3f8f5f'; g.fillRect(px(7), pz(7), 60 / 530 * S, 60 / 480 * S); // park
+    // landmark pads (garage, bank, safehouse, docks): small gold squares
+    g.fillStyle = 'rgba(255,210,62,0.85)';
+    for (const k of ['garage', 'bank', 'safehouse', 'docks']) {
+      const p = LANDMARKS[k];
+      g.fillRect(px(p.x) - 2.5, pz(p.z) - 2.5, 5, 5);
+    }
     const dot = (x, z, r, color) => {
       g.fillStyle = color; g.beginPath(); g.arc(px(x), pz(z), r, 0, Math.PI * 2); g.fill();
     };
@@ -108,7 +115,7 @@ export class HUD {
     g.fillStyle = '#ffffff';
     g.beginPath(); g.moveTo(0, -6); g.lineTo(4.5, 5); g.lineTo(-4.5, 5); g.closePath(); g.fill();
     g.restore();
-    g.strokeStyle = 'rgba(255,255,255,0.85)'; g.lineWidth = 1;
+    g.strokeStyle = '#ffd23e'; g.lineWidth = 1.5;
     g.beginPath(); g.arc(x, z, 8, 0, Math.PI * 2); g.stroke();
   }
 }

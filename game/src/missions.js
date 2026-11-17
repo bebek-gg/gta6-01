@@ -35,6 +35,22 @@ const JOBS = [
     objective: 'Rob the Coral Bank, then escape to the Portside Docks',
     reward: 5000,
   },
+  {
+    id: 'race', title: 'The Neon Grand Prix', giver: 'Cleo Vane',
+    brief: 'Cleo: "Debt paid — now the fun part. The Strip runs a midnight race: four gates, three minutes, in a car. Winner takes $1,200 and the whole city watches."',
+    objective: 'Hit all 4 race gates in order, in a car, before time runs out',
+    reward: 1200, timer: 180,
+  },
+];
+
+export const JOB_TOTAL = JOBS.length;
+
+// the grand prix route: four road intersections, one per corner of the city
+const RACE_GATES = [
+  { x: 148, z: -148, label: 'Race Gate 1' },
+  { x: -148, z: -148, label: 'Race Gate 2' },
+  { x: -148, z: 148, label: 'Race Gate 3' },
+  { x: 148, z: 148, label: 'Race Gate 4' },
 ];
 
 export class Missions {
@@ -75,7 +91,12 @@ export class Missions {
     this.world.cash += job.reward;
     this.world.hud.toast('JOB DONE — ' + job.title + '  +' + fmtCash(job.reward));
     this.world.audio.jingle();
-    this.world.saveGame && this.world.saveGame();
+    // first job done: Cleo trusts Milo with a pistol from here on
+    if (job.id === 'wheels' && this.world.player && !this.world.player.armed) {
+      this.world.player.armed = true;
+      this.world.hud.toast('Cleo: "You\'re one of us now, Milo. Take this — you\'ll need it."');
+    }
+    // save AFTER the index moves, or continuing replays the job just done
     this.active = null;
     this.beacon.visible = false; this.arrow.visible = false;
     this.index++;
@@ -83,10 +104,11 @@ export class Missions {
       this.storyDone = true;
       this.world.hud.setObjective('KINGPIN OF SOLMAR', 'Story complete. The city is yours — free roam.');
       this.world.hud.toast('Cleo: "Debt paid, Milo. Solmar is yours now."');
-      return;
+    } else {
+      this.world.hud.setObjective('Next job incoming…', 'Cleo is calling with the next job.');
+      this.world.nextJobIn = 4;
     }
-    this.world.hud.setObjective('Next job incoming…', 'Cleo is calling with the next job.');
-    this.world.nextJobIn = 4;
+    this.world.saveGame && this.world.saveGame();
   }
   fail(why) {
     this.world.hud.toast('JOB FAILED — ' + why + '. Try again.');
@@ -103,6 +125,7 @@ export class Missions {
       case 'shakedown': return this.shopsDone < 3 ? LANDMARKS.shops[this.shopsDone] : null;
       case 'pursuit': return LANDMARKS.safehouse;
       case 'score': return this.stage === 0 ? LANDMARKS.bank : LANDMARKS.docks;
+      case 'race': return RACE_GATES[this.stage] || null;
       default: return null;
     }
   }
@@ -163,7 +186,11 @@ export class Missions {
       this.beacon.position.set(t.x, 30, t.z);
       this.beaconT += dt;
       this.arrow.position.set(t.x, 14 + Math.sin(this.beaconT * 3) * 1.5, t.z);
-      world.hud.setObjective(job.title, job.objective + '  ·  ' + Math.round(dist2(world.playerX, world.playerZ, t.x, t.z)) + 'm');
+      // the race objective counts gates as they fall
+      const label = job.id === 'race'
+        ? 'Race gate ' + (this.stage + 1) + ' of ' + RACE_GATES.length + ' — drive!'
+        : job.objective;
+      world.hud.setObjective(job.title, label + '  ·  ' + Math.round(dist2(world.playerX, world.playerZ, t.x, t.z)) + 'm');
     } else {
       this.beacon.visible = false; this.arrow.visible = false;
     }
@@ -187,6 +214,15 @@ export class Missions {
     if (job.id === 'score' && this.stage === 1 &&
       dist2(world.playerX, world.playerZ, LANDMARKS.docks.x, LANDMARKS.docks.z) < 9) {
       this.complete(); return;
+    }
+    if (job.id === 'race') {
+      const gate = RACE_GATES[this.stage];
+      if (gate && dist2(world.playerX, world.playerZ, gate.x, gate.z) < 9) {
+        this.stage++;
+        this.world.audio.pickup();
+        if (this.stage >= RACE_GATES.length) { world.hud.setTimer(null); this.complete(); return; }
+        this.world.hud.toast('Gate ' + this.stage + '/' + RACE_GATES.length + ' — next gate is marked. Keep it pinned!');
+      }
     }
   }
 }

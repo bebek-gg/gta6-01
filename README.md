@@ -21,8 +21,9 @@ Coral Bank — or just cruise the Neon Strip and see what the night brings.
   physics (handbrake drifts included).
 - **Wanted system** — 1 to 5 stars. The Solmar PD sends foot cops and cruisers with
   sirens; lose them to cool off, or get busted and pay bail.
-- **Five story missions** — First Wheels, Running Late, The Shakedown, Hot Pursuit, and
-  The Big Score, plus a repeatable chop-shop: sell stolen cars to Cleo.
+- **Six story missions** — First Wheels, Running Late, The Shakedown, Hot Pursuit, The
+  Big Score, and the Neon Grand Prix street race, plus a repeatable chop-shop: sell
+  stolen cars to Cleo.
 - **Combat, cash and progression** — punch, shoot, collect cash drops, rank up from
   Wheelman to Kingpin of Solmar.
 - **HUD with minimap, saves, procedural sound** — WebAudio engine hum, sirens, gunshots

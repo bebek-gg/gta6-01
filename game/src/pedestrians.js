@@ -47,6 +47,7 @@ export class Pedestrians {
       ped.x = node.x + (this.rng() - 0.5) * 8;
       ped.z = node.z + (this.rng() - 0.5) * 8;
       ped.speed = 1.2 + this.rng() * 1.2;
+      ped.group.scale.setScalar(0.92 + this.rng() * 0.16); // varied heights
       this.scene.add(ped.group);
       this.peds.push(ped);
     }

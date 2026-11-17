@@ -1,6 +1,6 @@
 // main.js — SOLMAR boot, game loop, camera, input, crime hooks and ?shot= staging.
 // A complete open-world crime game: on-foot and driving, traffic, pedestrians,
-// police and a wanted system, five story missions, a HUD with minimap, saves,
+// police and a wanted system, six story missions, a HUD with minimap, saves,
 // and procedural WebAudio. Everything here is original; the city is Solmar.
 import * as THREE from 'three';
 import { buildCity, LANDMARKS } from './city.js';
@@ -8,7 +8,7 @@ import { Traffic, makeCar, placeCar, drivePlayerCar } from './vehicles.js';
 import { Pedestrians } from './pedestrians.js';
 import { Player } from './player.js';
 import { Police } from './police.js';
-import { Missions } from './missions.js';
+import { Missions, JOB_TOTAL } from './missions.js';
 import { HUD } from './hud.js';
 import { AudioEngine } from './audio.js';
 import { saveGame, loadGame, clearSave } from './save.js';
@@ -24,7 +24,7 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.12;
+renderer.toneMappingExposure = 1.25;
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(62, innerWidth / innerHeight, 0.1, 1200);
@@ -38,7 +38,7 @@ const hud = new HUD();
 const audio = new AudioEngine();
 
 const world = {
-  city, traffic, peds, police, hud, audio,
+  city, traffic, peds, police, hud, audio, player,
   cash: 200, playerX: 0, playerZ: 0, playerHeading: 0, playerSpeed: 0,
   inCar: false, playerCar: null, chopOffer: null, nextJobIn: 0,
   onAssault: (x, z) => { police.addHeat(140, 'assault'); peds.scare(x, z, 30); },
@@ -47,7 +47,17 @@ const world = {
   onBusted: () => busted('BUSTED', 'The Solmar PD caught up with you. Bail cost 10% of your cash — the city is still yours to take.'),
   onRam: () => hurtPlayer(15),
   onCarWrecked: () => { hud.toast('Your ride is wrecked!'); forceExitCar(); },
-  removePlayerCar: () => { if (world.playerCar) { scene.remove(world.playerCar.group); world.playerCar = null; world.inCar = false; } },
+  removePlayerCar: () => {
+    if (world.playerCar) {
+      const car = world.playerCar;
+      scene.remove(car.group);
+      world.playerCar = null; world.inCar = false;
+      // put Milo back on the street beside where the car was, visible again
+      player.setPosition(car.x + 2.5, car.z + 2.5, car.heading);
+      player.group.visible = true;
+      audio.engineStop();
+    }
+  },
   saveGame: () => doSave(),
 };
 const missions = new Missions(scene, world);
@@ -144,8 +154,9 @@ function newGame() {
   player.setPosition(-160, 160, 0);
   if (world.playerCar) { scene.remove(world.playerCar.group); world.playerCar = null; world.inCar = false; }
   hud.setCash(world.cash); hud.setHealth(100); hud.setWanted(0);
-  hud.setObjective('FIRST WHEELS', 'Steal a car and bring it to Cleo\u2019s Garage.');
   startPlaying();
+  // the story begins at once: job one is Cleo's first wheels
+  missions.start(0);
 }
 function startPlaying() {
   state = 'playing';
@@ -156,7 +167,7 @@ function startPlaying() {
 function togglePause() {
   if (state === 'playing') {
     state = 'paused';
-    hud.setPauseStats('Cash ' + fmtCash(world.cash) + '  ·  Job ' + (missions.storyDone ? 'story complete' : (missions.index + 1) + ' of 5') + '  ·  Wanted ' + police.stars + '★');
+    hud.setPauseStats('Cash ' + fmtCash(world.cash) + '  ·  Job ' + (missions.storyDone ? 'story complete' : (missions.index + 1) + ' of ' + JOB_TOTAL) + '  ·  Wanted ' + police.stars + '★');
     hud.show('pause');
   } else if (state === 'paused') startPlaying();
 }
@@ -169,6 +180,9 @@ function tryEnterCar() {
     traffic.parked = traffic.parked.filter((c) => c !== near);
     police.addHeat(80, 'stolen parked car');
   } else {
+    // jacked from traffic: take it out of the traffic flow, or the traffic
+    // AI would keep steering it along its route against the player
+    traffic.cars = traffic.cars.filter((c) => c !== near);
     police.addHeat(150, 'grand theft auto');
     hud.toast('Car jacked! The owner ran for it.');
     peds.scare(near.x, near.z, 20);
@@ -185,6 +199,14 @@ function forceExitCar() {
   const car = world.playerCar;
   car.isPlayer = false; car.speed = 0;
   world.playerCar = null; world.inCar = false;
+  if (car.health <= 0) {
+    // wrecked: clear the husk so it cannot be stolen again
+    scene.remove(car.group);
+  } else {
+    // a healthy car left on the street stays stealable
+    car.parked = true;
+    traffic.parked.push(car);
+  }
   player.setPosition(car.x + 2.5, car.z + 2.5, car.heading);
   player.group.visible = true;
   audio.engineStop();
@@ -224,10 +246,11 @@ function stageShot(name) {
     missions.start(1);
     missions.timer = 120;
   } else if (name === 'street') {
-    // on foot at the Neon Strip kerb, looking down a busy boulevard
-    player.setPosition(138, 100, Math.PI / 2);
+    // on foot on the Neon Strip sidewalk, facing north down the avenue:
+    // traffic, pedestrians and the strip's signs ahead, buildings both sides
+    player.setPosition(140, 96, 0);
     missions.start(0);
-    const lane = [[144.5, 112], [151.5, 132], [144.5, 152]];
+    const lane = [[152, 112], [152, 132], [152, 152]];
     for (let i = 0; i < 3; i++) {
       // static parked props for the shot (NOT traffic.cars: they have no route)
       const c = makeCar(i === 0 ? 'taxi' : 'sunrunner', 0);
@@ -272,8 +295,8 @@ function stageShot(name) {
 }
 
 // --- build the world ---
-traffic.spawn(14);
-peds.spawn(24);
+traffic.spawn(18);
+peds.spawn(32);
 player.setPosition(-160, 160, 0);
 player.armed = false;
 hud.setCash(world.cash);

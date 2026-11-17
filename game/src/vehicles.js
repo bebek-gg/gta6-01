@@ -18,8 +18,9 @@ const wheelGeo = new THREE.CylinderGeometry(0.42, 0.42, 0.35, 10);
 export function makeCar(modelKey, color) {
   const m = MODELS[modelKey];
   const g = new THREE.Group();
-  const paint = new THREE.MeshStandardMaterial({ color, roughness: 0.35, metalness: 0.55 });
-  const glass = new THREE.MeshStandardMaterial({ color: 0x1a2836, roughness: 0.15, metalness: 0.7 });
+  const paint = new THREE.MeshStandardMaterial({ color, roughness: 0.32, metalness: 0.6 });
+  // sunlit glass: pale blue, highly reflective, so the cabin reads as windows
+  const glass = new THREE.MeshStandardMaterial({ color: 0x8fc4dd, roughness: 0.08, metalness: 0.9 });
   const body = new THREE.Mesh(bodyGeo, paint);
   const long = modelKey === 'hauler' ? 4.6 : 4.0;
   body.scale.set(1.9, 0.62, long);
@@ -37,18 +38,37 @@ export function makeCar(modelKey, color) {
     bar.scale.set(1.1, 0.18, 0.5); bar.position.set(0, 1.55, -0.15); g.add(bar);
     g.userData.lightBar = bar;
   }
+  if (modelKey === 'comet') {
+    // rear spoiler on the sports car
+    const spoiler = new THREE.Mesh(bodyGeo, paint);
+    spoiler.scale.set(1.7, 0.08, 0.5);
+    spoiler.position.set(0, 1.18, -long / 2 + 0.25);
+    g.add(spoiler);
+  }
+  if (modelKey === 'taxi') {
+    const sign = new THREE.Mesh(bodyGeo, new THREE.MeshStandardMaterial({ color: 0xffe9a8, emissive: 0xffd23e, emissiveIntensity: 0.8 }));
+    sign.scale.set(0.7, 0.28, 0.45); sign.position.set(0, 1.6, -0.15); g.add(sign);
+  }
   const wheelMat = new THREE.MeshStandardMaterial({ color: 0x14161a, roughness: 0.9 });
+  const hubMat = new THREE.MeshStandardMaterial({ color: 0xb8bec8, roughness: 0.3, metalness: 0.8 });
+  const hubGeo = new THREE.CylinderGeometry(0.24, 0.24, 0.4, 10);
   const wheels = [];
   for (const [wx, wz] of [[-0.95, 1.35], [0.95, 1.35], [-0.95, -1.35], [0.95, -1.35]]) {
     const w = new THREE.Mesh(wheelGeo, wheelMat);
     w.rotation.z = Math.PI / 2;
     w.position.set(wx, 0.42, wz);
+    w.add(new THREE.Mesh(hubGeo, hubMat)); // hub cap, spins with the wheel
     g.add(w); wheels.push(w);
   }
   const hl = new THREE.MeshStandardMaterial({ color: 0xfff6c8, emissive: 0xffedb0, emissiveIntensity: 1.2 });
   for (const wx of [-0.6, 0.6]) {
     const lamp = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.16, 0.08), hl);
     lamp.position.set(wx, 0.66, long / 2 + 0.01); g.add(lamp);
+  }
+  const tl = new THREE.MeshStandardMaterial({ color: 0xff2a2a, emissive: 0xd21f2b, emissiveIntensity: 1.4 });
+  for (const wx of [-0.6, 0.6]) {
+    const lamp = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.16, 0.08), tl);
+    lamp.position.set(wx, 0.66, -long / 2 - 0.01); g.add(lamp);
   }
   const car = {
     group: g, model: modelKey, name: m.name, maxSpeed: m.maxSpeed, accel: m.accel,
@@ -97,8 +117,8 @@ export class Traffic {
       this.scene.add(car.group);
       this.cars.push(car);
     }
-    // parked cars along the roads
-    for (let i = 0; i < 10; i++) {
+    // parked cars along the roads: denser, so the streets read lived-in
+    for (let i = 0; i < 16; i++) {
       const car = makeCar(pick(this.rng, ['sunrunner', 'comet', 'hauler']), 0);
       car.group.children[0].material = new THREE.MeshStandardMaterial({
         color: pick(this.rng, MODELS[car.model].colors), roughness: 0.35, metalness: 0.55,

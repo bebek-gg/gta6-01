@@ -15,8 +15,23 @@ export class Player {
     this.torso.position.y = 1.2; this.torso.castShadow = true;
     this.head = new THREE.Mesh(new THREE.SphereGeometry(0.27, 12, 10), skin);
     this.head.position.y = 1.92; this.head.castShadow = true;
+    // flat cap with a brim, so Milo reads as a character, not a pawn
+    const capMat = new THREE.MeshStandardMaterial({ color: 0x1a2030, roughness: 0.85 });
+    const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.29, 0.12, 12), capMat);
+    cap.position.y = 2.1; this.group.add(cap);
+    const brim = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.05, 0.22), capMat);
+    brim.position.set(0, 2.05, 0.28); this.group.add(brim);
+    // belt at the waist
+    const belt = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.09, 0.4),
+      new THREE.MeshStandardMaterial({ color: 0x14161a, roughness: 0.7 }));
+    belt.position.y = 0.78; this.group.add(belt);
     this.legL = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.8, 0.28), pants);
     this.legL.position.set(-0.17, 0.4, 0);
+    // shoes ride on the legs so they swing with the walk cycle
+    const shoeMat = new THREE.MeshStandardMaterial({ color: 0xe8e8e8, roughness: 0.6 });
+    const shoeGeo = new THREE.BoxGeometry(0.28, 0.12, 0.44);
+    const shoeL = new THREE.Mesh(shoeGeo, shoeMat);
+    shoeL.position.set(0, -0.36, 0.06); this.legL.add(shoeL);
     this.legR = this.legL.clone(); this.legR.position.x = 0.17;
     this.armL = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.75, 0.22), jacket);
     this.armL.position.set(-0.45, 1.2, 0);
