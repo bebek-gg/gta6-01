@@ -90,7 +90,7 @@ export class Missions {
     const job = this.active;
     this.world.cash += job.reward;
     this.world.hud.toast('JOB DONE — ' + job.title + '  +' + fmtCash(job.reward));
-    this.world.audio.jingle();
+    this.world.audio.missionFanfare();
     // first job done: Cleo trusts Milo with a pistol from here on
     if (job.id === 'wheels' && this.world.player && !this.world.player.armed) {
       this.world.player.armed = true;

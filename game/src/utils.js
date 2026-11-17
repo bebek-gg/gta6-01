@@ -18,6 +18,15 @@ export function angDiff(a, b) {
   if (d < -Math.PI) d += Math.PI * 2;
   return d;
 }
+// step `a` toward `target` by at most `maxStep`, taking the short way round
+// the circle — the camera uses this to settle behind the player/car
+export function turnToward(a, target, maxStep) {
+  return a + clamp(angDiff(a, target), -maxStep, maxStep);
+}
+// integer in [lo, hi] from any rng() that returns [0, 1)
+export function randInt(rng, lo, hi) {
+  return lo + Math.floor(rng() * (hi - lo + 1));
+}
 export function pick(rng, arr) { return arr[Math.floor(rng() * arr.length)]; }
 export function fmtCash(n) {
   return '$' + Math.floor(n).toLocaleString('en-US');
@@ -25,6 +34,11 @@ export function fmtCash(n) {
 export function fmtTime(sec) {
   sec = Math.max(0, Math.ceil(sec));
   return Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0');
+}
+// squared ground-plane distance: for radius checks without the sqrt
+export function dist2Sq(ax, az, bx, bz) {
+  const dx = ax - bx, dz = az - bz;
+  return dx * dx + dz * dz;
 }
 // distance on the ground plane
 export function dist2(ax, az, bx, bz) {

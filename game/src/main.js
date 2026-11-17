@@ -12,7 +12,7 @@ import { Missions, JOB_TOTAL } from './missions.js';
 import { HUD } from './hud.js';
 import { AudioEngine } from './audio.js';
 import { saveGame, loadGame, clearSave } from './save.js';
-import { clamp, damp, dist2, fmtCash } from './utils.js';
+import { clamp, damp, dist2, dist2Sq, fmtCash, randInt, turnToward } from './utils.js';
 
 const params = new URLSearchParams(location.search);
 const SHOT = params.get('shot');
@@ -39,7 +39,7 @@ const audio = new AudioEngine();
 
 const world = {
   city, traffic, peds, police, hud, audio, player,
-  cash: 200, playerX: 0, playerZ: 0, playerHeading: 0, playerSpeed: 0,
+  cash: 200, bestCash: 0, bestStars: 0, playerX: 0, playerZ: 0, playerHeading: 0, playerSpeed: 0,
   inCar: false, playerCar: null, chopOffer: null, nextJobIn: 0,
   onAssault: (x, z) => { police.addHeat(140, 'assault'); peds.scare(x, z, 30); },
   onCrash: (speed) => { if (speed > 16) police.addHeat(40, 'reckless'); },
@@ -72,7 +72,7 @@ const pickups = [];
     const m = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.9, 0.9), mat);
     m.position.set(x, 1, z); m.castShadow = true;
     scene.add(m);
-    pickups.push({ mesh: m, x, z, value: 50 + Math.floor(Math.random() * 100), respawn: 0 });
+    pickups.push({ mesh: m, x, z, value: randInt(Math.random, 50, 149), respawn: 0 });
   }
 }
 
@@ -140,12 +140,21 @@ function busted(title, text) {
   doSave();
 }
 function doSave() {
+  // refresh the bests here too: a mission reward lands in the same frame
+  // complete() saves, before the loop's per-frame tracking runs again
+  world.bestCash = Math.max(world.bestCash, world.cash);
+  world.bestStars = Math.max(world.bestStars, police.stars);
   return saveGame({
     cash: world.cash, missionIndex: missions.storyDone ? 99 : missions.index,
     storyDone: missions.storyDone, playerX: player.x, playerZ: player.z, armed: player.armed,
+    bestCash: world.bestCash, bestStars: world.bestStars,
   });
 }
 function newGame() {
+  // bests survive a fresh run: read them before the save is wiped
+  const old = loadGame();
+  world.bestCash = old ? (old.bestCash || old.cash) : 0;
+  world.bestStars = old ? (old.bestStars || 0) : 0;
   clearSave();
   world.cash = 200;
   missions.index = 0; missions.active = null; missions.storyDone = false;
@@ -167,7 +176,7 @@ function startPlaying() {
 function togglePause() {
   if (state === 'playing') {
     state = 'paused';
-    hud.setPauseStats('Cash ' + fmtCash(world.cash) + '  ·  Job ' + (missions.storyDone ? 'story complete' : (missions.index + 1) + ' of ' + JOB_TOTAL) + '  ·  Wanted ' + police.stars + '★');
+    hud.setPauseStats('Cash ' + fmtCash(world.cash) + '  ·  Job ' + (missions.storyDone ? 'story complete' : (missions.index + 1) + ' of ' + JOB_TOTAL) + '  ·  Wanted ' + police.stars + '★' + '  ·  Best cash ' + fmtCash(world.bestCash) + '  ·  Hottest ' + world.bestStars + '★');
     hud.show('pause');
   } else if (state === 'paused') startPlaying();
 }
@@ -309,6 +318,8 @@ hud.el.btnContinue.onclick = () => {
   audio.ensure();
   if (saved) {
     world.cash = saved.cash;
+    world.bestCash = saved.bestCash || saved.cash;
+    world.bestStars = saved.bestStars || 0;
     player.armed = !!saved.armed;
     player.setPosition(saved.playerX || -160, saved.playerZ || 160, 0);
     hud.setCash(world.cash);
@@ -403,11 +414,11 @@ function animate() {
     }
     pk.mesh.rotation.y += dt * 2;
     pk.mesh.position.y = 1 + Math.sin(timeSec * 2 + pk.x) * 0.25;
-    if (dist2(world.playerX, world.playerZ, pk.x, pk.z) < 2.2) {
+    if (dist2Sq(world.playerX, world.playerZ, pk.x, pk.z) < 2.2 * 2.2) {
       world.cash += pk.value;
       hud.setCash(world.cash);
       hud.toast('Found ' + fmtCash(pk.value) + ' in cash.');
-      audio.pickup();
+      audio.cashChime();
       pk.mesh.visible = false;
       pk.respawn = 45;
     }
@@ -426,6 +437,8 @@ function animate() {
   city.update(dt, timeSec);
 
   // HUD
+  world.bestCash = Math.max(world.bestCash, world.cash);
+  world.bestStars = Math.max(world.bestStars, police.stars);
   hud.setCash(world.cash);
   hud.setWanted(police.stars);
   hud.setHealth(player.health);
@@ -434,10 +447,7 @@ function animate() {
 
   // camera: settle behind the player/car a while after the last drag
   if (now - lastDrag > 2.5) {
-    let d = (world.playerHeading + Math.PI) - camYaw;
-    while (d > Math.PI) d -= Math.PI * 2;
-    while (d < -Math.PI) d += Math.PI * 2;
-    camYaw += clamp(d, -2.2 * dt, 2.2 * dt);
+    camYaw = turnToward(camYaw, world.playerHeading + Math.PI, 2.2 * dt);
   }
   const dist = world.inCar ? 13 : 9.5;
   const height = world.inCar ? 5.2 : 4.4;

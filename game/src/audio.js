@@ -47,8 +47,24 @@ export class AudioEngine {
   gunshot() { this.noise(0.14, 0.5, 900); this.blip(160, 0.1, 'square', 0.25, 60); }
   punch() { this.noise(0.08, 0.35, 500); this.blip(90, 0.09, 'sine', 0.3, 50); }
   pickup() { this.blip(660, 0.09, 'sine', 0.22); setTimeout(() => this.blip(990, 0.12, 'sine', 0.22), 70); }
+  // bright coin chime for cash pickups: three rising notes plus a sparkle
+  cashChime() {
+    if (!this.ctx || this.muted) return;
+    [880, 1174.66, 1567.98].forEach((f, i) => setTimeout(() => this.blip(f, 0.14, 'sine', 0.2), i * 60));
+    setTimeout(() => this.blip(2093, 0.22, 'sine', 0.12), 190);
+  }
   denied() { this.blip(180, 0.16, 'sawtooth', 0.2, 120); }
   jingle() { [523, 659, 784, 1047].forEach((f, i) => setTimeout(() => this.blip(f, 0.16, 'triangle', 0.25), i * 95)); }
+  // mission-complete fanfare: a fuller rising run than the start jingle,
+  // ending on a held two-note chord
+  missionFanfare() {
+    if (!this.ctx || this.muted) return;
+    [392, 523.25, 659.25, 783.99, 1046.5].forEach((f, i) => setTimeout(() => this.blip(f, 0.22, 'triangle', 0.26), i * 110));
+    setTimeout(() => {
+      this.blip(1318.5, 0.45, 'triangle', 0.22);
+      this.blip(1568, 0.45, 'sine', 0.15);
+    }, 560);
+  }
   sirenStart() {
     if (!this.ctx || this.sirenNodes || this.muted) return;
     const o = this.ctx.createOscillator(), g = this.ctx.createGain(), lfo = this.ctx.createOscillator(), lg = this.ctx.createGain();
@@ -85,9 +101,11 @@ export class AudioEngine {
     try { this.engineOsc.stop(); } catch (e) { /* already stopped */ }
     this.engineOsc = null; this.engineGain = null;
   }
-  // a slow, warm bassline + hats loop, scheduled a bar at a time
+  // a slow, warm bassline + hats loop, scheduled a bar at a time, with a
+  // sparse pentatonic lead pluck floating an octave above the bass
   startMusic() {
     if (!this.ctx) return;
+    const LEAD = [220, 261.63, 293.66, 329.63, 392, 440];
     const bar = () => {
       if (!this.ctx) return;
       const root = [55, 55, 65.41, 49][this.step % 4];
@@ -102,6 +120,18 @@ export class AudioEngine {
         g.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
         o.connect(g); g.connect(this.master);
         o.start(t); o.stop(t + 0.22);
+        if (i % 2 === 0 && this.step % 2 === 0) {
+          // lead pluck: one pentatonic note per beat, drifting with the bar,
+          // on alternate bars only so the loop breathes
+          const lo = this.ctx.createOscillator(), lg = this.ctx.createGain();
+          lo.type = 'sine';
+          lo.frequency.value = LEAD[(this.step * 4 + i / 2) % LEAD.length] * 2;
+          lg.gain.setValueAtTime(0.0001, t);
+          lg.gain.exponentialRampToValueAtTime(0.06, t + 0.02);
+          lg.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
+          lo.connect(lg); lg.connect(this.master);
+          lo.start(t); lo.stop(t + 0.22);
+        }
         if (i % 2 === 1) {
           const n = this.ctx.createBufferSource();
           const len = Math.floor(this.ctx.sampleRate * 0.03);
