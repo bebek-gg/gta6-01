@@ -9,6 +9,7 @@ import { Pedestrians } from './pedestrians.js';
 import { Player } from './player.js';
 import { Police } from './police.js';
 import { Missions, JOB_TOTAL } from './missions.js';
+import { Shops } from './shops.js';
 import { HUD } from './hud.js';
 import { AudioEngine } from './audio.js';
 import { saveGame, loadGame, clearSave } from './save.js';
@@ -41,6 +42,7 @@ const world = {
   city, traffic, peds, police, hud, audio, player,
   cash: 200, bestCash: 0, bestStars: 0, playerX: 0, playerZ: 0, playerHeading: 0, playerSpeed: 0,
   inCar: false, playerCar: null, chopOffer: null, nextJobIn: 0,
+  armor: 0, safehouse2Owned: false, shopOpen: false,
   onAssault: (x, z) => { police.addHeat(140, 'assault'); peds.scare(x, z, 30); },
   onCrash: (speed) => { if (speed > 16) police.addHeat(40, 'reckless'); },
   onShootCar: () => { police.addHeat(90, 'shooting'); },
@@ -62,6 +64,8 @@ const world = {
 };
 const missions = new Missions(scene, world);
 world.missions = missions;
+const shops = new Shops(scene, world);
+world.shops = shops;
 
 // cash pickups scattered around town
 const pickups = [];
@@ -85,7 +89,16 @@ addEventListener('keydown', (e) => {
   keys[e.code] = true;
   if (e.code === 'KeyP') togglePause();
   if (e.code === 'KeyM') { audio.ensure(); audio.setMuted(!audio.muted); hud.toast(audio.muted ? 'Sound muted' : 'Sound on'); }
+  if (e.code === 'KeyR') {
+    audio.ensure();
+    const name = audio.cycleStation();
+    hud.setStation(name);
+    hud.toast('Radio: ' + name);
+  }
   if (e.code === 'KeyC') { camYaw = player.heading + Math.PI; }
+  // E is an edge: one tap per press, so holding it never toggles in/out of a car
+  if (e.code === 'KeyE' && !e.repeat && state === 'playing') eTap = true;
+  if (e.code === 'KeyE' && world.shopOpen) closeShop();
 });
 addEventListener('keyup', (e) => { keys[e.code] = false; });
 canvas.addEventListener('pointerdown', (e) => { dragging = true; moved = 0; lastX = e.clientX; lastY = e.clientY; });
@@ -114,12 +127,19 @@ addEventListener('resize', () => {
 let state = 'title';
 let timeSec = 0;
 let hurtCd = 0, carHitCd = 0;
-let exitCd = 0;
+let eTap = false; // set on the KeyE keydown edge, consumed by the loop
 const clock = new THREE.Clock();
 
 function hurtPlayer(n) {
   if (hurtCd > 0 || state !== 'playing') return;
   hurtCd = 1;
+  // body armor absorbs damage first
+  if (world.armor > 0) {
+    const absorbed = Math.min(world.armor, n);
+    world.armor -= absorbed;
+    n -= absorbed;
+    hud.setArmor(world.armor);
+  }
   player.health = Math.max(0, player.health - n);
   hud.setHealth(player.health);
   if (player.health <= 0) busted('WASTED', 'Milo went down. The hospital patched him up — for 10% of his cash.');
@@ -133,7 +153,7 @@ function busted(title, text) {
   player.health = 100; hud.setHealth(100);
   hud.setBusted(title, text + ' Lost ' + fmtCash(lost) + '.');
   hud.show('busted');
-  audio.sirenStop(); audio.engineStop();
+  audio.sirenStop(); audio.engineStop(); audio.heliStop();
   if (world.playerCar) { scene.remove(world.playerCar.group); world.playerCar = null; world.inCar = false; }
   player.setPosition(LANDMARKS.hospital.x, LANDMARKS.hospital.z, 0);
   player.group.visible = true;
@@ -148,6 +168,7 @@ function doSave() {
     cash: world.cash, missionIndex: missions.storyDone ? 99 : missions.index,
     storyDone: missions.storyDone, playerX: player.x, playerZ: player.z, armed: player.armed,
     bestCash: world.bestCash, bestStars: world.bestStars,
+    safehouse2Owned: world.safehouse2Owned,
   });
 }
 function newGame() {
@@ -157,9 +178,12 @@ function newGame() {
   world.bestStars = old ? (old.bestStars || 0) : 0;
   clearSave();
   world.cash = 200;
+  world.armor = 0; world.safehouse2Owned = false;
+  hud.setArmor(0); hud.setAmmo(0);
   missions.index = 0; missions.active = null; missions.storyDone = false;
   police.clear();
-  player.health = 100; player.armed = false;
+  audio.heliStop();
+  player.health = 100; player.armed = false; player.ammo = 0;
   player.setPosition(-160, 160, 0);
   if (world.playerCar) { scene.remove(world.playerCar.group); world.playerCar = null; world.inCar = false; }
   hud.setCash(world.cash); hud.setHealth(100); hud.setWanted(0);
@@ -171,6 +195,7 @@ function startPlaying() {
   state = 'playing';
   hud.hide('title'); hud.hide('pause'); hud.hide('busted');
   audio.ensure(); audio.engineStart();
+  hud.setStation(audio.stationName());
   hud.announce('SOLMAR — explore the city, steal a car, run jobs for Cleo Vane.');
 }
 function togglePause() {
@@ -187,7 +212,8 @@ function tryEnterCar() {
   if (!near) return false;
   if (near.parked) {
     traffic.parked = traffic.parked.filter((c) => c !== near);
-    police.addHeat(80, 'stolen parked car');
+    // your own car (bought at a shop) costs no heat to take back
+    if (!near.owned) police.addHeat(80, 'stolen parked car');
   } else {
     // jacked from traffic: take it out of the traffic flow, or the traffic
     // AI would keep steering it along its route against the player
@@ -222,7 +248,7 @@ function forceExitCar() {
 }
 function sellCar() {
   const car = world.playerCar;
-  const price = { comet: 320, sunrunner: 180, hauler: 150, taxi: 120, cruiser: 0 }[car.model] || 150;
+  const price = { comet: 320, muscle: 260, coupe: 240, pickup: 200, sunrunner: 180, hauler: 150, taxi: 120, cruiser: 0 }[car.model] || 150;
   if (price <= 0) { hud.toast('Cleo: "I don\u2019t fence cop cars, Milo."'); return; }
   world.cash += price;
   hud.toast('Sold the ' + car.name + ' for ' + fmtCash(price) + '.');
@@ -234,6 +260,68 @@ function sellCar() {
   player.group.visible = true;
   audio.engineStop();
   doSave();
+}
+
+// --- shops & safehouses (hold-E interactions outside missions) ---
+const SAFEHOUSE2_PRICE = 2500;
+let safeHoldT = 0;
+function safehouseInteract() {
+  // only while free-roaming on foot: never during a story job
+  if (missions.active || world.inCar) return null;
+  const sh1 = LANDMARKS.safehouse;
+  if (dist2(world.playerX, world.playerZ, sh1.x, sh1.z) < 9) {
+    return { label: 'Resting at the Safehouse…', need: 2, kind: 'enter' };
+  }
+  const sh2 = LANDMARKS.safehouse2;
+  if (dist2(world.playerX, world.playerZ, sh2.x, sh2.z) < 9) {
+    if (!world.safehouse2Owned) return { label: 'Buy the Coral Loft — $2,500…', need: 3, kind: 'buy' };
+    return { label: 'Resting at the Coral Loft…', need: 2, kind: 'enter' };
+  }
+  return null;
+}
+function advanceSafeHold(dt) {
+  const it = safehouseInteract();
+  if (!it) { safeHoldT = 0; return 0; }
+  safeHoldT += dt;
+  const p = Math.min(1, safeHoldT / it.need);
+  if (p >= 1) {
+    safeHoldT = 0;
+    if (it.kind === 'buy') {
+      if (world.cash < SAFEHOUSE2_PRICE) {
+        audio.denied();
+        hud.toast('Not enough cash for the Coral Loft — $2,500.');
+        return 1;
+      }
+      world.cash -= SAFEHOUSE2_PRICE;
+      world.safehouse2Owned = true;
+      hud.setCash(world.cash);
+      audio.pickup();
+      hud.toast('Coral Loft bought — a second safehouse, yours.');
+      doSave();
+    } else {
+      player.health = 100;
+      hud.setHealth(100);
+      police.clear();
+      audio.heliStop();
+      audio.pickup();
+      hud.toast('Safehouse — wanted cleared, health restored. Game saved.');
+      doSave();
+    }
+  }
+  return p;
+}
+function openShop() {
+  const shop = shops.nearest(world.playerX, world.playerZ);
+  if (!shop) return;
+  world.shopOpen = true;
+  state = 'shop';
+  const refresh = () => hud.openShop(shop.label, world.cash, (id) => { shops.buy(id); refresh(); });
+  refresh();
+}
+function closeShop() {
+  world.shopOpen = false;
+  hud.closeShop();
+  if (state === 'shop') startPlaying();
 }
 
 // --- shot staging (deterministic scenarios for screenshots) ---
@@ -277,10 +365,61 @@ function stageShot(name) {
     player.group.visible = false;
     player.x = car.x; player.z = car.z; player.heading = 0;
     player.armed = true;
+    player.ammo = 60;
     missions.start(4);
     missions.stage = 1;
     police.addHeat(700, 'shot');
     police.spawnCar(148, -138); police.spawnCar(148, -196);
+  } else if (name === 'heli') {
+    // 5 stars at dusk on the Strip: the PD helicopter overhead, cruisers in tow.
+    // the car cruises slowly so the bird — which chases at a capped speed —
+    // stays right above it, searchlight on the roof
+    const car = comet();
+    placeCar(car, 148, 60, 0);
+    car.speed = 10; car.isPlayer = true;
+    world.playerCar = car; world.inCar = true;
+    player.group.visible = false;
+    player.x = car.x; player.z = car.z; player.heading = 0;
+    police.addHeat(950, 'shot');
+    police.spawnCar(148, 20); police.spawnCar(140, 110);
+    missions.start(1);
+    missions.timer = 120;
+  } else if (name === 'shop') {
+    // on foot outside Marina Mart, the shop panel open
+    player.setPosition(-185, -178, 0);
+    missions.start(0);
+    hud.setStation('SOLMAR FM');
+    world.shopOpen = true;
+    state = 'shop';
+    hud.openShop('Marina Mart', world.cash, () => {});
+  } else if (name === 'heist') {
+    // the Marina Heist, second vault: getaway car at the bank, 4 stars
+    const car = makeCar('muscle', 0x8a2a2a);
+    scene.add(car.group);
+    placeCar(car, 148, -168, 0);
+    car.isPlayer = true;
+    world.playerCar = car; world.inCar = true;
+    player.group.visible = false;
+    player.x = car.x; player.z = car.z; player.heading = 0;
+    player.armed = true;
+    player.ammo = 60;
+    missions.start(8);
+    missions.stage = 2;
+    police.addHeat(800, 'shot');
+    police.spawnCar(148, -138); police.spawnCar(148, -196);
+  } else if (name === 'radio') {
+    // night drive down the Neon Strip, NEON NIGHTS on the radio
+    const car = comet();
+    placeCar(car, 148, 150, 0);
+    car.speed = 24; car.isPlayer = true;
+    world.playerCar = car; world.inCar = true;
+    player.group.visible = false;
+    player.x = car.x; player.z = car.z; player.heading = 0;
+    audio.ensure();
+    audio.cycleStation(); // SOLMAR FM -> NEON NIGHTS
+    hud.setStation(audio.stationName());
+    missions.start(5);
+    hud.setObjective('NEON GRAND PRIX', 'Race gate 1 of 4 — drive!');
   } else { // dusk: beach cruise
     const car = comet();
     placeCar(car, -222, -40, 0);
@@ -301,18 +440,30 @@ function stageShot(name) {
   );
   camera.lookAt(player.x - Math.sin(camYaw) * 6, 1.6, player.z - Math.cos(camYaw) * 6);
   startPlaying();
+  // the shop shot stages the panel open: re-pause into the shop state
+  // after startPlaying put the game back into 'playing'
+  if (name === 'shop') { state = 'shop'; world.shopOpen = true; }
 }
 
 // --- build the world ---
-traffic.spawn(18);
-peds.spawn(32);
+traffic.spawn(24);
+peds.spawn(44);
 player.setPosition(-160, 160, 0);
 player.armed = false;
 hud.setCash(world.cash);
 hud.setHealth(100);
 hud.setObjective('FIRST WHEELS', 'Steal a car and bring it to Cleo\u2019s Garage.');
 const saved = loadGame();
-if (saved) hud.el.btnContinue.style.display = 'inline-block';
+if (saved) {
+  hud.el.btnContinue.style.display = 'inline-block';
+  // the save stamp tells a returning player how fresh their run is
+  if (saved.savedAt) {
+    const d = new Date(saved.savedAt);
+    hud.el.btnContinue.textContent = 'Continue — saved ' +
+      d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) + ', ' +
+      d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  }
+}
 hud.el.btnStart.onclick = () => { audio.ensure(); newGame(); };
 hud.el.btnContinue.onclick = () => {
   audio.ensure();
@@ -320,7 +471,11 @@ hud.el.btnContinue.onclick = () => {
     world.cash = saved.cash;
     world.bestCash = saved.bestCash || saved.cash;
     world.bestStars = saved.bestStars || 0;
+    world.safehouse2Owned = !!saved.safehouse2Owned;
     player.armed = !!saved.armed;
+    if (player.armed) player.ammo = 60;
+    hud.setAmmo(player.ammo);
+    hud.setArmor(world.armor);
     player.setPosition(saved.playerX || -160, saved.playerZ || 160, 0);
     hud.setCash(world.cash);
     if (saved.storyDone) { missions.storyDone = true; missions.index = 99; }
@@ -333,6 +488,7 @@ hud.el.btnResume.onclick = () => startPlaying();
 hud.el.btnRestart.onclick = () => { hud.hide('pause'); newGame(); };
 hud.el.btnSave.onclick = () => { hud.toast(doSave() ? 'Game saved.' : 'Save failed.'); };
 hud.el.btnBusted.onclick = () => { hud.hide('busted'); startPlaying(); };
+hud.el.btnShopClose.onclick = () => closeShop();
 if (SHOT) stageShot(SHOT);
 
 // --- main loop ---
@@ -344,7 +500,6 @@ function animate() {
   timeSec += dt;
   hurtCd = Math.max(0, hurtCd - dt);
   carHitCd = Math.max(0, carHitCd - dt);
-  exitCd = Math.max(0, exitCd - dt);
 
   const input = {
     fwd: !!keys.KeyW, back: !!keys.KeyS,
@@ -387,22 +542,36 @@ function animate() {
     }
   }
 
-  // E key: interact / enter / exit / sell
-  if (keys.KeyE && exitCd <= 0) {
-    exitCd = 0.35;
+  // E key: interact / enter / exit / sell / shop — one tap per key press
+  if (eTap) {
+    eTap = false;
     if (world.inCar && world.chopOffer && !missions.active) sellCar();
+    else if (missions.interact()) { /* hold handled below (taxi pickup works from the car) */ }
     else if (world.inCar) forceExitCar();
-    else if (missions.interact()) { /* hold handled below */ }
+    else if (!missions.active && safehouseInteract()) { /* hold handled below */ }
+    else if (!missions.active && shops.nearest(world.playerX, world.playerZ)) openShop();
     else tryEnterCar();
   }
   if (keys.KeyF) player.punch(world);
-  if (keys.KeyE && missions.interact()) {
-    const p = missions.advanceHold(dt);
-    const it = missions.interact();
+  const holdIt = missions.interact() || safehouseInteract();
+  if (keys.KeyE && holdIt) {
+    const p = missions.interact() ? missions.advanceHold(dt) : advanceSafeHold(dt);
+    const it = missions.interact() || safehouseInteract();
     hud.prompt('<b>E</b> ' + (it ? it.label : '') + ' ' + Math.round(p * 100) + '%');
-  } else if (!missions.interact()) {
+  } else if (!holdIt) {
+    let msg = null;
     const near = !world.inCar && (traffic.nearestParked(player.x, player.z, 4) || traffic.nearestTraffic(player.x, player.z, 4));
-    hud.prompt(near ? '<b>E</b> Steal the ' + near.name : (world.chopOffer && world.inCar ? '<b>E</b> Sell car to Cleo' : null));
+    if (near) msg = '<b>E</b> Steal the ' + near.name;
+    else if (world.chopOffer && world.inCar) msg = '<b>E</b> Sell car to Cleo';
+    else if (!world.inCar && !missions.active) {
+      const shop = shops.nearest(world.playerX, world.playerZ);
+      if (shop) msg = '<b>E</b> Browse ' + shop.label;
+      else {
+        const sh = safehouseInteract();
+        if (sh) msg = '<b>E</b> ' + (sh.kind === 'buy' ? 'Buy the Coral Loft — $2,500' : 'Rest at the Safehouse');
+      }
+    }
+    hud.prompt(msg);
   }
 
   // pickups
@@ -468,8 +637,11 @@ animate();
 
 // test handle for the playtest script
 window.__solmar = {
-  world, player, police, missions, traffic,
+  world, player, police, missions, traffic, shops, audio,
   get state() { return state; },
+  get heli() { return police.heli; },
+  get station() { return audio.stationName(); },
+  get shopOpen() { return world.shopOpen; },
   start: () => { if (state === 'title') { hud.el.btnStart.click(); } },
   ready: true,
 };

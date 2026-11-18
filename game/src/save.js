@@ -1,9 +1,9 @@
 // save.js — localStorage save/load for cash, story progress, rank and bests.
 // v2 adds bestCash (most cash ever held) and bestStars (highest wanted
 // level reached); v1 saves (no v field) migrate on load, keeping the cash
-// they hold as the starting best.
+// they hold as the starting best. v3 adds safehouse2Owned (the Coral Loft).
 const KEY = 'solmar-save-v1';
-const VERSION = 2;
+const VERSION = 3;
 
 export function saveGame(state) {
   try {
@@ -16,6 +16,7 @@ export function saveGame(state) {
       armed: state.armed,
       bestCash: state.bestCash || 0,
       bestStars: Math.max(0, Math.min(5, state.bestStars || 0)),
+      safehouse2Owned: !!state.safehouse2Owned,
       savedAt: Date.now(),
     }));
     return true;
@@ -38,6 +39,10 @@ export function loadGame() {
     if (typeof d.bestCash !== 'number') d.bestCash = d.cash;
     if (typeof d.bestStars !== 'number') d.bestStars = 0;
     d.bestStars = Math.max(0, Math.min(5, d.bestStars));
+    // v3: the Coral Loft purchase; older saves never owned it
+    if (typeof d.safehouse2Owned !== 'boolean') d.safehouse2Owned = false;
+    // savedAt stamps the Continue button; a save without one is just old
+    if (typeof d.savedAt !== 'number') d.savedAt = 0;
     return d;
   } catch (e) { return null; }
 }

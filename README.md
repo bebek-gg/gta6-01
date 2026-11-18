@@ -20,14 +20,24 @@ Coral Bank — or just cruise the Neon Strip and see what the night brings.
 - **Steal any car** — parked cars or jack one from traffic, then drive it with arcade
   physics (handbrake drifts included).
 - **Wanted system** — 1 to 5 stars. The Solmar PD sends foot cops and cruisers with
-  sirens; lose them to cool off, or get busted and pay bail.
-- **Six story missions** — First Wheels, Running Late, The Shakedown, Hot Pursuit, The
-  Big Score, and the Neon Grand Prix street race, plus a repeatable chop-shop: sell
-  stolen cars to Cleo.
-- **Combat, cash and progression** — punch, shoot, collect cash drops, rank up from
-  Wheelman to Kingpin of Solmar.
-- **HUD with minimap, saves, procedural sound** — WebAudio engine hum, sirens, gunshots
-  and a bass loop, all generated in code. Progress saves to localStorage.
+  sirens; at 4–5 stars a **police helicopter** joins the hunt, leading you down the
+  street with its searchlight raking back onto your car. Outrun the bird in a fast car
+  and its searchlight loses you, or shake it at a safehouse. Lose them to cool off,
+  or get busted and pay bail.
+- **Twelve story missions** — First Wheels, Running Late, The Shakedown, Hot Pursuit, The
+  Big Score, the Neon Grand Prix street race, then Three Drops, The Bodyguard, The Marina
+  Heist, Quiet Night (a no-heat stealth job), Night Shift (taxi fares) and The Getaway,
+  plus a repeatable chop-shop: sell stolen cars to Cleo.
+- **Shops and safehouses** — spend cash in Old Marina on repairs, body armor, pistol ammo
+  and a Comet GT of your own; rest at the Sunfield Safehouse to clear your wanted level and
+  heal, or buy the Coral Loft as a second safehouse.
+- **Radio** — three procedural stations (SOLMAR FM, NEON NIGHTS, COASTAL JAZZ) on Key R.
+- **Eight car models** — Comet GT, Sunrunner, Hauler Van, Solmar Cab, Muscle V8, Coastal
+  Coupe, Dune Pickup and the PD Cruiser, with denser traffic and more pedestrians.
+- **Combat, cash and progression** — punch, shoot (with ammo), collect cash drops, rank up
+  from Wheelman to Kingpin of Solmar.
+- **HUD with minimap, saves, procedural sound** — WebAudio engine hum, sirens, rotor thump,
+  gunshots and a three-station radio, all generated in code. Progress saves to localStorage.
 
 ## Controls
 
@@ -36,9 +46,10 @@ Coral Bank — or just cruise the Neon Strip and see what the night brings.
 | WASD | Move / drive |
 | Shift | Sprint |
 | Space | Jump / handbrake |
-| E | Enter or steal a car (hold at a job marker to work it) |
+| E | Enter or steal a car (hold at a job marker to work it; near a shop, browse it) |
 | F | Punch |
-| Click | Shoot (once armed) |
+| Click | Shoot (once armed; uses ammo) |
+| R | Change radio station |
 | Drag mouse | Look around |
 | P | Pause · M mute · C reset camera |
 

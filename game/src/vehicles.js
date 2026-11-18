@@ -10,6 +10,9 @@ export const MODELS = {
   hauler: { name: 'Hauler Van', maxSpeed: 28, accel: 14, colors: [0xe8e8e8, 0x4a6a8a, 0x8a4a3a] },
   taxi: { name: 'Solmar Cab', maxSpeed: 34, accel: 18, colors: [0xffc41f] },
   cruiser: { name: 'PD Cruiser', maxSpeed: 42, accel: 24, colors: [0x14181f] },
+  muscle: { name: 'Muscle V8', maxSpeed: 40, accel: 22, colors: [0x8a2a2a, 0x2a4a8a, 0xe8e8e8] },
+  coupe: { name: 'Coastal Coupe', maxSpeed: 38, accel: 20, colors: [0xd2a13a, 0x3a6fd2, 0x5a3a6a] },
+  pickup: { name: 'Dune Pickup', maxSpeed: 32, accel: 16, colors: [0x7a8a5a, 0xc0c8d0, 0x8a4a3a] },
 };
 
 const bodyGeo = new THREE.BoxGeometry(1, 1, 1);
@@ -27,8 +30,8 @@ export function makeCar(modelKey, color) {
   body.position.y = 0.62; body.castShadow = true;
   g.add(body);
   const cabin = new THREE.Mesh(bodyGeo, glass);
-  cabin.scale.set(1.7, 0.55, modelKey === 'hauler' ? 1.2 : 2.0);
-  cabin.position.set(0, 1.18, modelKey === 'hauler' ? 0.9 : -0.15);
+  cabin.scale.set(1.7, 0.55, (modelKey === 'hauler' || modelKey === 'pickup') ? 1.2 : 2.0);
+  cabin.position.set(0, 1.18, (modelKey === 'hauler' || modelKey === 'pickup') ? 0.9 : -0.15);
   cabin.castShadow = true;
   g.add(cabin);
   if (modelKey === 'cruiser') {
@@ -44,6 +47,24 @@ export function makeCar(modelKey, color) {
     spoiler.scale.set(1.7, 0.08, 0.5);
     spoiler.position.set(0, 1.18, -long / 2 + 0.25);
     g.add(spoiler);
+  }
+  if (modelKey === 'muscle') {
+    // hood scoop on the V8, and a spoiler like the Comet
+    const scoop = new THREE.Mesh(bodyGeo, paint);
+    scoop.scale.set(0.9, 0.22, 1.1);
+    scoop.position.set(0, 1.0, 1.1);
+    g.add(scoop);
+    const spoiler = new THREE.Mesh(bodyGeo, paint);
+    spoiler.scale.set(1.7, 0.08, 0.5);
+    spoiler.position.set(0, 1.18, -long / 2 + 0.25);
+    g.add(spoiler);
+  }
+  if (modelKey === 'pickup') {
+    // open bed: low walls behind a short cabin
+    const bed = new THREE.Mesh(bodyGeo, paint);
+    bed.scale.set(1.7, 0.5, 1.6);
+    bed.position.set(0, 0.85, -1.1);
+    g.add(bed);
   }
   if (modelKey === 'taxi') {
     const sign = new THREE.Mesh(bodyGeo, new THREE.MeshStandardMaterial({ color: 0xffe9a8, emissive: 0xffd23e, emissiveIntensity: 0.8 }));
@@ -104,7 +125,7 @@ export class Traffic {
     this.parked = [];
   }
   spawn(count) {
-    const keys = ['sunrunner', 'sunrunner', 'hauler', 'taxi', 'comet'];
+    const keys = ['sunrunner', 'sunrunner', 'hauler', 'taxi', 'comet', 'muscle', 'coupe', 'pickup'];
     for (let i = 0; i < count; i++) {
       const car = makeCar(pick(this.rng, keys), 0);
       car.group.children[0].material = new THREE.MeshStandardMaterial({
@@ -113,13 +134,15 @@ export class Traffic {
       const node = pick(this.rng, this.city.nodes);
       const next = pick(this.rng, this.city.neighbors(node));
       placeCar(car, node.x, node.z, Math.atan2(next.x - node.x, next.z - node.z));
-      car.node = node; car.next = next; car.cruise = 9 + this.rng() * 5;
+      car.node = node; car.next = next;
+      // fast models cruise faster: a Comet GT should not crawl like a Hauler
+      car.cruise = (8 + this.rng() * 4) * (MODELS[car.model].maxSpeed / 34);
       this.scene.add(car.group);
       this.cars.push(car);
     }
     // parked cars along the roads: denser, so the streets read lived-in
     for (let i = 0; i < 16; i++) {
-      const car = makeCar(pick(this.rng, ['sunrunner', 'comet', 'hauler']), 0);
+      const car = makeCar(pick(this.rng, ['sunrunner', 'comet', 'hauler', 'muscle', 'coupe', 'pickup']), 0);
       car.group.children[0].material = new THREE.MeshStandardMaterial({
         color: pick(this.rng, MODELS[car.model].colors), roughness: 0.35, metalness: 0.55,
       });

@@ -44,7 +44,8 @@ export class Player {
     this.group.add(this.torso, this.head, this.legL, this.legR, this.armL, this.armR, this.gun);
     scene.add(this.group);
     this.x = 0; this.z = 0; this.y = 0; this.vy = 0; this.heading = 0;
-    this.health = 100; this.armed = false; this.punchCd = 0; this.shootCd = 0;
+    this.health = 100; this.armed = false; this.ammo = 0;
+    this.punchCd = 0; this.shootCd = 0;
     this.walkPhase = 0; this.speed = 0;
     // tracer line for shots
     const geo = new THREE.BufferGeometry();
@@ -123,7 +124,15 @@ export class Player {
   }
   shoot(camera, world) {
     if (this.shootCd > 0 || !this.armed) return false;
+    if (this.ammo <= 0) {
+      this.shootCd = 0.3;
+      world.audio.denied();
+      world.hud.toast('Out of ammo — buy more at a shop.');
+      return false;
+    }
     this.shootCd = 0.3;
+    this.ammo--;
+    world.hud.setAmmo(this.ammo);
     world.audio.gunshot();
     const origin = { x: this.x, y: this.y + 1.5, z: this.z };
     const dir = new THREE.Vector3();
@@ -143,6 +152,8 @@ export class Player {
     for (const p of world.peds.peds) if (p.state !== 'down') test(p.x, p.z, 0.7, 'ped', p);
     for (const c of world.police.cops) if (!c.down) test(c.x, c.z, 0.8, 'cop', c);
     for (const c of [...world.traffic.cars, ...world.traffic.parked]) test(c.x, c.z, 2.2, 'car', c);
+    // PD cruisers are shootable too: a pursuing cruiser takes damage like any car
+    for (const c of world.police.cars) if (c.health > 0) test(c.x, c.z, 2.2, 'pcar', c);
     if (hitKind === 'ped') {
       world.peds.knockDown(hitObj);
       world.onAssault && world.onAssault(hitObj.x, hitObj.z);
@@ -150,6 +161,9 @@ export class Player {
       hitObj.health -= 50;
       world.onAssault && world.onAssault(hitObj.x, hitObj.z);
     } else if (hitKind === 'car') {
+      hitObj.health -= 25;
+      world.onShootCar && world.onShootCar(hitObj);
+    } else if (hitKind === 'pcar') {
       hitObj.health -= 25;
       world.onShootCar && world.onShootCar(hitObj);
     }

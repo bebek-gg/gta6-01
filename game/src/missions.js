@@ -41,9 +41,56 @@ const JOBS = [
     objective: 'Hit all 4 race gates in order, in a car, before time runs out',
     reward: 1200, timer: 180,
   },
+  {
+    id: 'courier', title: 'Three Drops', giver: 'Cleo Vane',
+    brief: 'Cleo: "Three drops, one run, four minutes. Coral Heights, the docks, then Solmar General. Don\'t keep my customers waiting."',
+    objective: 'Deliver to all 3 stops in order before time runs out',
+    reward: 900, timer: 240,
+  },
+  {
+    id: 'escort', title: 'The Bodyguard', giver: 'Cleo Vane',
+    brief: 'Cleo: "My associate rides with you to the Safehouse. The PD knows his face — three stars and counting. Get him there in one piece."',
+    objective: 'Drive the associate to the Safehouse with 3 stars on you',
+    reward: 1100,
+  },
+  {
+    id: 'heist', title: 'The Marina Heist', giver: 'Cleo Vane',
+    brief: 'Cleo: "Two vaults, one night. Crack the docks warehouse, then the Coral Bank vault — and get out before the whole city wakes up."',
+    objective: 'Crack the warehouse, then the bank vault, then escape to the Garage',
+    reward: 2000,
+  },
+  {
+    id: 'stealth', title: 'Quiet Night', giver: 'Cleo Vane',
+    brief: 'Cleo: "The bank vault, no noise, no heat. One star on you and the job is blown. Walk in quiet, walk out rich."',
+    objective: 'Crack the Coral Bank vault without ever gaining a wanted star',
+    reward: 1500,
+  },
+  {
+    id: 'taxi', title: 'Night Shift', giver: 'Cleo Vane',
+    brief: 'Cleo: "The cab needs a driver tonight. Three fares around town — pick them up, drop them off, keep the meter running."',
+    objective: 'Pick up 3 fares in a car and drop each one off ($250 a fare)',
+    reward: 600,
+  },
+  {
+    id: 'getaway', title: 'The Getaway', giver: 'Cleo Vane',
+    brief: 'Cleo: "Four stars, Milo, and every cruiser in Solmar is on you. Lose them, then vanish at the docks."',
+    objective: 'Lose the 4-star wanted level, then reach the Portside Docks',
+    reward: 1400,
+  },
 ];
 
 export const JOB_TOTAL = JOBS.length;
+
+// three-drops route: three landmarks, in order, against the clock
+const COURIER_DROPS = [LANDMARKS.delivery, LANDMARKS.docks, LANDMARKS.hospital];
+// night-shift fares: pickup -> drop-off, $250 a fare, in a car
+const TAXI_FARES = [
+  // the fare waits on the street outside PD HQ: the station itself is a
+  // solid building, and no car (or pedestrian) can reach its centre
+  { pick: { x: 74, z: 37, label: 'Solmar PD HQ' }, drop: LANDMARKS.bank, fare: 250 },
+  { pick: LANDMARKS.hospital, drop: LANDMARKS.garage, fare: 250 },
+  { pick: LANDMARKS.docks, drop: LANDMARKS.safehouse, fare: 250 },
+];
 
 // the grand prix route: four road intersections, one per corner of the city
 const RACE_GATES = [
@@ -82,6 +129,12 @@ export class Missions {
     this.stage = 0; this.holdT = 0; this.shopsDone = 0;
     this.timer = this.active.timer || 0;
     if (this.active.id === 'pursuit') this.world.police.addHeat(500, 'mission');
+    if (this.active.id === 'escort') this.world.police.addHeat(500, 'mission');
+    if (this.active.id === 'getaway') this.world.police.addHeat(800, 'mission');
+    if (this.active.id === 'stealth') {
+      this.world.police.clear(); // Quiet Night starts clean
+      this.world.audio.heliStop && this.world.audio.heliStop();
+    }
     this.world.hud.toast(this.active.giver + ': ' + this.active.brief);
     this.world.hud.setObjective(this.active.title, this.active.objective);
     this.world.audio.jingle();
@@ -94,6 +147,8 @@ export class Missions {
     // first job done: Cleo trusts Milo with a pistol from here on
     if (job.id === 'wheels' && this.world.player && !this.world.player.armed) {
       this.world.player.armed = true;
+      this.world.player.ammo = 60;
+      this.world.hud.setAmmo(60);
       this.world.hud.toast('Cleo: "You\'re one of us now, Milo. Take this — you\'ll need it."');
     }
     // save AFTER the index moves, or continuing replays the job just done
@@ -126,6 +181,15 @@ export class Missions {
       case 'pursuit': return LANDMARKS.safehouse;
       case 'score': return this.stage === 0 ? LANDMARKS.bank : LANDMARKS.docks;
       case 'race': return RACE_GATES[this.stage] || null;
+      case 'courier': return COURIER_DROPS[this.stage] || null;
+      case 'escort': return LANDMARKS.safehouse;
+      case 'heist': return this.stage === 0 ? LANDMARKS.docks : this.stage === 1 ? LANDMARKS.bank : LANDMARKS.garage;
+      case 'stealth': return LANDMARKS.bank;
+      case 'taxi': {
+        const f = TAXI_FARES[Math.floor(this.stage / 2)];
+        return f ? (this.stage % 2 === 0 ? f.pick : f.drop) : null;
+      }
+      case 'getaway': return LANDMARKS.docks;
       default: return null;
     }
   }
@@ -136,8 +200,19 @@ export class Missions {
     if (!t) return null;
     const d = dist2(this.world.playerX, this.world.playerZ, t.x, t.z);
     if (d > 7) return null;
+    // the vault, warehouse and shakedown jobs are on-foot work: while driving,
+    // E just parks the car (the taxi is the one job done from the driver's seat)
+    const onFootJob = ['shakedown', 'score', 'heist', 'stealth'].includes(this.active.id);
+    if (onFootJob && this.world.inCar) return null;
     if (this.active.id === 'shakedown') return { label: 'Collecting protection money…', need: 3 };
     if (this.active.id === 'score' && this.stage === 0) return { label: 'Cracking the vault…', need: 4 };
+    if (this.active.id === 'heist' && this.stage === 0) return { label: 'Cracking the warehouse…', need: 4 };
+    if (this.active.id === 'heist' && this.stage === 1) return { label: 'Cracking the bank vault…', need: 4 };
+    if (this.active.id === 'stealth' && this.stage === 0) return { label: 'Cracking the vault, quietly…', need: 5 };
+    if (this.active.id === 'taxi' && this.stage % 2 === 0) {
+      if (!this.world.inCar) return null; // fares only ride in a car
+      return { label: 'Picking up the fare…', need: 2 };
+    }
     return null;
   }
   advanceHold(dt) {
@@ -161,6 +236,28 @@ export class Missions {
         this.world.audio.jingle();
         this.world.hud.toast('Vault open — $5,000 in the bag. RUN to the docks!');
         this.world.hud.setObjective(this.active.title, 'Escape to the Portside Docks — 4 stars on you');
+      } else if (this.active.id === 'heist' && this.stage === 0) {
+        this.stage = 1;
+        this.world.audio.pickup();
+        this.world.hud.toast('Warehouse cracked — now the Coral Bank vault!');
+        this.world.hud.setObjective(this.active.title, 'Crack the Coral Bank vault');
+      } else if (this.active.id === 'heist' && this.stage === 1) {
+        this.stage = 2;
+        this.world.police.addHeat(700, 'bank alarm');
+        this.world.audio.jingle();
+        this.world.hud.toast('Both vaults cracked — $2,000 in the bag. RUN to the garage!');
+        this.world.hud.setObjective(this.active.title, 'Escape to Cleo\u2019s Garage — 4 stars on you');
+      } else if (this.active.id === 'stealth' && this.stage === 0) {
+        this.stage = 1;
+        this.world.audio.missionFanfare();
+        this.world.hud.toast('Vault cracked — not a single star. Cleo is impressed.');
+        this.complete(); return 1;
+      } else if (this.active.id === 'taxi' && this.stage % 2 === 0) {
+        const f = TAXI_FARES[Math.floor(this.stage / 2)];
+        this.stage++;
+        this.world.audio.pickup();
+        this.world.hud.toast('Fare aboard — take them to ' + f.drop.label + '.');
+        this.world.hud.setObjective(this.active.title, 'Drop the fare at ' + f.drop.label + '  ·  $250');
       }
     }
     return p;
@@ -189,7 +286,13 @@ export class Missions {
       // the race objective counts gates as they fall
       const label = job.id === 'race'
         ? 'Race gate ' + (this.stage + 1) + ' of ' + RACE_GATES.length + ' — drive!'
-        : job.objective;
+        : job.id === 'courier'
+          ? 'Drop ' + (this.stage + 1) + ' of 3 — ' + t.label
+          : job.id === 'taxi'
+            ? (this.stage % 2 === 0
+              ? 'Pick up fare ' + (Math.floor(this.stage / 2) + 1) + ' of 3 at ' + t.label + ' (in a car)'
+              : 'Drop the fare at ' + t.label + '  ·  $250')
+            : job.objective;
       world.hud.setObjective(job.title, label + '  ·  ' + Math.round(dist2(world.playerX, world.playerZ, t.x, t.z)) + 'm');
     } else {
       this.beacon.visible = false; this.arrow.visible = false;
@@ -223,6 +326,41 @@ export class Missions {
         if (this.stage >= RACE_GATES.length) { world.hud.setTimer(null); this.complete(); return; }
         this.world.hud.toast('Gate ' + this.stage + '/' + RACE_GATES.length + ' — next gate is marked. Keep it pinned!');
       }
+    }
+    if (job.id === 'courier') {
+      const drop = COURIER_DROPS[this.stage];
+      if (drop && dist2(world.playerX, world.playerZ, drop.x, drop.z) < 8) {
+        this.stage++;
+        this.world.audio.pickup();
+        if (this.stage >= COURIER_DROPS.length) { world.hud.setTimer(null); this.complete(); return; }
+        this.world.hud.toast('Drop ' + this.stage + '/3 done — next: ' + COURIER_DROPS[this.stage].label + '.');
+      }
+    }
+    if (job.id === 'escort' &&
+      dist2(world.playerX, world.playerZ, LANDMARKS.safehouse.x, LANDMARKS.safehouse.z) < 9) {
+      this.complete(); return;
+    }
+    if (job.id === 'heist' && this.stage === 2 &&
+      dist2(world.playerX, world.playerZ, LANDMARKS.garage.x, LANDMARKS.garage.z) < 9) {
+      this.complete(); return;
+    }
+    if (job.id === 'stealth' && world.police.stars > 0) {
+      this.fail('Spotted — the job is blown');
+      return;
+    }
+    if (job.id === 'taxi' && this.stage % 2 === 1) {
+      const f = TAXI_FARES[Math.floor(this.stage / 2)];
+      if (f && dist2(world.playerX, world.playerZ, f.drop.x, f.drop.z) < 8) {
+        this.world.cash += f.fare;
+        this.world.audio.cashChime();
+        this.world.hud.toast('Fare paid +' + fmtCash(f.fare) + '.');
+        this.stage++;
+        if (this.stage >= TAXI_FARES.length * 2) { this.complete(); return; }
+      }
+    }
+    if (job.id === 'getaway' && world.police.stars === 0 &&
+      dist2(world.playerX, world.playerZ, LANDMARKS.docks.x, LANDMARKS.docks.z) < 9) {
+      this.complete(); return;
     }
   }
 }

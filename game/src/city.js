@@ -11,6 +11,7 @@ export const LANDMARKS = {
   garage: { x: -185, z: 185, label: "Cleo's Garage" },
   bank: { x: 185, z: -185, label: 'Coral Bank' },
   safehouse: { x: 37, z: 185, label: 'Safehouse' },
+  safehouse2: { x: 111, z: -185, label: 'Coral Loft' },
   docks: { x: -111, z: 222, label: 'Portside Docks' },
   shops: [
     { x: -185, z: -185, label: 'Marina Mart' },
@@ -19,6 +20,9 @@ export const LANDMARKS = {
   ],
   delivery: { x: 185, z: -111, label: 'Coral Heights' },
   hospital: { x: -37, z: -185, label: 'Solmar General' },
+  // the PD HQ station is a solid building at its block centre: no car or
+  // pedestrian can reach this point (26 m from any open ground), so mission
+  // targets must use the street outside it, never this landmark itself
   policeHQ: { x: 111, z: 37, label: 'Solmar PD HQ' },
 };
 
@@ -35,6 +39,7 @@ const PLAZA_BLOCKS = new Set([
   '5,1', // Coral Heights delivery (block centre z=-111 is bz=1)
   '0,0', '1,0', '0,1', // the three shops
   '2,0', // Solmar General (respawn point)
+  '4,0', // Coral Loft, the second safehouse (buyable)
 ]);
 
 function roadCoord(i) { return -222 + i * PITCH; }
@@ -251,6 +256,12 @@ export function buildCity(scene) {
           ant.position.set(cx + ox + (rng() - 0.5) * (w - 6), h + 4.5, cz + oz + (rng() - 0.5) * (dep - 6));
           group.add(ant);
         }
+        // rooftop water tanks on a third of the roofs: a cylinder on legs
+        if (rng() < 0.33) {
+          const tank = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 1.6, 2.6, 10), acMat);
+          tank.position.set(cx + ox + (rng() - 0.5) * (w - 6), h + 2.3, cz + oz + (rng() - 0.5) * (dep - 6));
+          tank.castShadow = true; group.add(tank);
+        }
         // balconies on the street face of taller buildings: slab + rail
         if (h > 12 && rng() < 0.6) {
           const floors = 1 + Math.floor(rng() * 2);
@@ -350,12 +361,41 @@ export function buildCity(scene) {
     post.position.set(s.x, 6.5, s.z); group.add(post);
   }
 
-  // landmark beacons pads (garage / bank / safehouse / docks)
+  // landmark beacons pads (garage / bank / safehouse / docks / coral loft)
   const padMat = new THREE.MeshStandardMaterial({ color: 0xffd23e, emissive: 0xffb400, emissiveIntensity: 0.7 });
-  for (const k of ['garage', 'bank', 'safehouse', 'docks']) {
+  for (const k of ['garage', 'bank', 'safehouse', 'safehouse2', 'docks']) {
     const p = LANDMARKS[k];
     const pad = new THREE.Mesh(new THREE.CylinderGeometry(6, 6, 0.4, 20), padMat);
     pad.position.set(p.x, 0.2, p.z); group.add(pad);
+  }
+
+  // the pier at the beach: a wooden deck on posts, reaching into the ocean
+  const pierMat = new THREE.MeshStandardMaterial({ color: 0x8a6a4a, roughness: 1 });
+  const pierPostMat = new THREE.MeshStandardMaterial({ color: 0x5a4230, roughness: 1 });
+  for (let px = -246; px >= -288; px -= 6) {
+    const plank = new THREE.Mesh(boxGeo, pierMat);
+    plank.scale.set(6, 0.5, 5);
+    plank.position.set(px, 0.9, -40);
+    plank.castShadow = true; group.add(plank);
+    if ((px + 246) % 12 === 0) {
+      for (const pz of [-42.2, -37.8]) {
+        const post = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 2.4, 6), pierPostMat);
+        post.position.set(px, 0.2, pz); group.add(post);
+      }
+    }
+  }
+  // beach umbrellas: striped cones on poles along the sand
+  const umbrellaMats = [
+    new THREE.MeshStandardMaterial({ color: 0xff6ad5, roughness: 0.9 }),
+    new THREE.MeshStandardMaterial({ color: 0x7fd4ff, roughness: 0.9 }),
+    new THREE.MeshStandardMaterial({ color: 0xff9a3d, roughness: 0.9 }),
+  ];
+  for (let k = 0; k < 5; k++) {
+    const uz = -160 + k * 80 + (rng() - 0.5) * 20;
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 3.4, 6), pierPostMat);
+    pole.position.set(-240, 1.7, uz); group.add(pole);
+    const top = new THREE.Mesh(new THREE.ConeGeometry(3.2, 1.6, 10), pick(rng, umbrellaMats));
+    top.position.set(-240, 4, uz); top.castShadow = true; group.add(top);
   }
 
   scene.add(group);

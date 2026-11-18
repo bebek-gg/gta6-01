@@ -5,7 +5,9 @@
 // /output/dossier.json, the summary the judge reads, with the vendored make.fun library.
 // SOLMAR is a complete open-world crime game: Milo Reyes works jobs for Cleo Vane across the
 // sun-soaked coastal city of Solmar — on foot and by car, traffic and pedestrians, car stealing,
-// a wanted system with Solmar PD chases, six story missions, combat, a HUD with a minimap,
+// a wanted system with Solmar PD chases and a helicopter at 4-5 stars (outrun
+// its searchlight, or shake it at a safehouse), twelve story missions,
+// shops, safehouses, a three-station radio, combat, a HUD with a minimap,
 // saves and procedural WebAudio. Put 3 or 4 PNG or JPEG screenshots in screenshots/ (the first
 // by name is the cover) and run it.
 //

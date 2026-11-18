@@ -1,9 +1,28 @@
 // audio.js — fully procedural WebAudio: no samples, no network. Engine hum,
 // sirens, gunshots, punches, pickups, UI jingles and a laid-back bass loop.
+// radio: three procedural stations on one bass-and-lead loop engine.
+// SOLMAR FM is the warm original; NEON NIGHTS is faster and minor-key;
+// COASTAL JAZZ is slow and sparse. Key R cycles them.
+const STATIONS = [
+  { name: 'SOLMAR FM', roots: [55, 55, 65.41, 49], tempo: 1760, lead: [220, 261.63, 293.66, 329.63, 392, 440], leadEvery: 2 },
+  { name: 'NEON NIGHTS', roots: [49, 49, 58.27, 65.41], tempo: 1320, lead: [233.08, 261.63, 311.13, 349.23, 415.3, 466.16], leadEvery: 1 },
+  { name: 'COASTAL JAZZ', roots: [65.41, 49, 58.27, 55], tempo: 2200, lead: [261.63, 293.66, 329.63, 392, 440, 523.25], leadEvery: 4 },
+];
+
 export class AudioEngine {
   constructor() {
     this.ctx = null; this.muted = false; this.musicTimer = 0; this.step = 0;
     this.engineOsc = null; this.engineGain = null; this.sirenNodes = null;
+    this.station = 0; this.heliNodes = null;
+  }
+  stationName() { return STATIONS[this.station].name; }
+  cycleStation() {
+    this.station = (this.station + 1) % STATIONS.length;
+    if (this.ctx) {
+      clearTimeout(this.musicTimer);
+      this.startMusic();
+    }
+    return this.stationName();
   }
   ensure() {
     if (this.ctx) { if (this.ctx.state === 'suspended') this.ctx.resume(); return; }
@@ -102,16 +121,19 @@ export class AudioEngine {
     this.engineOsc = null; this.engineGain = null;
   }
   // a slow, warm bassline + hats loop, scheduled a bar at a time, with a
-  // sparse pentatonic lead pluck floating an octave above the bass
+  // sparse pentatonic lead pluck floating an octave above the bass — the
+  // roots, tempo and lead density come from the current radio station, read
+  // fresh every bar so switching stations (Key R) changes the music at once
   startMusic() {
     if (!this.ctx) return;
-    const LEAD = [220, 261.63, 293.66, 329.63, 392, 440];
     const bar = () => {
       if (!this.ctx) return;
-      const root = [55, 55, 65.41, 49][this.step % 4];
+      const st = STATIONS[this.station];
+      const LEAD = st.lead;
+      const root = st.roots[this.step % st.roots.length];
       const t0 = this.now() + 0.05;
       for (let i = 0; i < 8; i++) {
-        const t = t0 + i * 0.22;
+        const t = t0 + i * (st.tempo / 1000 / 8);
         const o = this.ctx.createOscillator(), g = this.ctx.createGain();
         o.type = 'triangle';
         o.frequency.value = (i % 4 === 0) ? root : (i % 2 === 0 ? root * 1.5 : root);
@@ -120,7 +142,7 @@ export class AudioEngine {
         g.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
         o.connect(g); g.connect(this.master);
         o.start(t); o.stop(t + 0.22);
-        if (i % 2 === 0 && this.step % 2 === 0) {
+        if (i % 2 === 0 && this.step % st.leadEvery === 0) {
           // lead pluck: one pentatonic note per beat, drifting with the bar,
           // on alternate bars only so the loop breathes
           const lo = this.ctx.createOscillator(), lg = this.ctx.createGain();
@@ -146,8 +168,31 @@ export class AudioEngine {
         }
       }
       this.step++;
-      this.musicTimer = setTimeout(bar, 1760);
+      this.musicTimer = setTimeout(bar, st.tempo);
     };
     bar();
+  }
+  // helicopter rotor: looped noise through a lowpass, chopped by an 11 Hz
+  // LFO on the gain — the thump-thump of the PD bird overhead
+  heliStart() {
+    if (!this.ctx || this.heliNodes || this.muted) return;
+    const len = this.ctx.sampleRate;
+    const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    const src = this.ctx.createBufferSource(); src.buffer = buf; src.loop = true;
+    const f = this.ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 260;
+    const g = this.ctx.createGain(); g.gain.value = 0.045;
+    const lfo = this.ctx.createOscillator(); lfo.type = 'sine'; lfo.frequency.value = 11;
+    const lg = this.ctx.createGain(); lg.gain.value = 0.035;
+    lfo.connect(lg); lg.connect(g.gain);
+    src.connect(f); f.connect(g); g.connect(this.master);
+    src.start(); lfo.start();
+    this.heliNodes = { src, lfo };
+  }
+  heliStop() {
+    if (!this.heliNodes) return;
+    try { this.heliNodes.src.stop(); this.heliNodes.lfo.stop(); } catch (e) { /* already stopped */ }
+    this.heliNodes = null;
   }
 }

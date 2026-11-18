@@ -2,6 +2,7 @@
 // prompts, toasts, overlays, and the canvas minimap.
 import { fmtCash, fmtTime } from './utils.js';
 import { LANDMARKS } from './city.js';
+import { SHOP_ITEMS } from './shops.js';
 
 const RANKS = [[0, 'WHEELMAN'], [1500, 'HUSTLER'], [4000, 'MADE'], [10000, 'KINGPIN OF SOLMAR']];
 
@@ -11,7 +12,8 @@ export class HUD {
     for (const id of ['cash', 'rank', 'wanted', 'health', 'hpfill', 'speed', 'speedv', 'carname',
       'objective', 'objtag', 'objtext', 'prompt', 'toast', 'timer', 'cross', 'hint',
       'title', 'pause', 'busted', 'bustedText', 'pauseStats', 'btnStart', 'btnContinue',
-      'btnResume', 'btnRestart', 'btnSave', 'btnBusted', 'status']) {
+      'btnResume', 'btnRestart', 'btnSave', 'btnBusted', 'status', 'radio', 'radioName',
+      'ammo', 'armor', 'shop', 'shopTitle', 'shopItems', 'btnShopClose']) {
       this.el[id] = document.getElementById(id);
     }
     this.mm = document.getElementById('minimap').getContext('2d');
@@ -37,6 +39,33 @@ export class HUD {
     this.el.hpfill.style.background = hp > 50 ? 'linear-gradient(90deg,#37e08b,#a5f04a)'
       : hp > 25 ? 'linear-gradient(90deg,#e0a337,#f0d24a)' : 'linear-gradient(90deg,#e03737,#f04a4a)';
   }
+  setAmmo(n) {
+    this.el.ammo.style.display = n > 0 ? 'inline' : 'none';
+    this.el.ammo.textContent = 'AMMO ' + n;
+  }
+  setArmor(v) {
+    this.el.armor.style.display = v > 0 ? 'inline' : 'none';
+    this.el.armor.textContent = 'ARMOR ' + v;
+  }
+  setStation(name) {
+    this.el.radio.style.display = 'block';
+    this.el.radioName.textContent = name;
+  }
+  // the shop panel: one button per item, each calling onBuy(itemId)
+  openShop(shopName, cash, onBuy) {
+    this.el.shopTitle.textContent = shopName + ' — cash ' + fmtCash(cash);
+    const box = this.el.shopItems;
+    box.innerHTML = '';
+    for (const item of SHOP_ITEMS) {
+      const b = document.createElement('button');
+      b.className = 'btn shopbtn';
+      b.innerHTML = '<b>' + item.name + '</b> — ' + item.desc + ' <span>' + fmtCash(item.price) + '</span>';
+      b.onclick = () => onBuy(item.id);
+      box.appendChild(b);
+    }
+    this.show('shop');
+  }
+  closeShop() { this.hide('shop'); }
   setSpeed(kmh, label) {
     const s = this.el.speed;
     if (label) { s.style.display = 'block'; this.el.speedv.textContent = Math.round(kmh); this.el.carname.textContent = label; }
@@ -89,11 +118,16 @@ export class HUD {
       g.beginPath(); g.moveTo(0, pz(c)); g.lineTo(S, pz(c)); g.stroke();
     }
     g.fillStyle = '#3f8f5f'; g.fillRect(px(7), pz(7), 60 / 530 * S, 60 / 480 * S); // park
-    // landmark pads (garage, bank, safehouse, docks): small gold squares
+    // landmark pads (garage, bank, safehouse, coral loft, docks): small gold squares
     g.fillStyle = 'rgba(255,210,62,0.85)';
-    for (const k of ['garage', 'bank', 'safehouse', 'docks']) {
+    for (const k of ['garage', 'bank', 'safehouse', 'safehouse2', 'docks']) {
       const p = LANDMARKS[k];
       g.fillRect(px(p.x) - 2.5, pz(p.z) - 2.5, 5, 5);
+    }
+    // shops (Old Marina): small green squares, so cash has somewhere to go
+    g.fillStyle = 'rgba(46,204,113,0.9)';
+    for (const s of LANDMARKS.shops) {
+      g.fillRect(px(s.x) - 2.5, pz(s.z) - 2.5, 5, 5);
     }
     const dot = (x, z, r, color) => {
       g.fillStyle = color; g.beginPath(); g.arc(px(x), pz(z), r, 0, Math.PI * 2); g.fill();
