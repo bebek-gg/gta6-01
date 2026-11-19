@@ -1,75 +1,136 @@
-// shops.js — the three Old Marina shops: hold E to browse, spend cash on
-// repairs, body armor, pistol ammo and a Comet GT of your own. A shop only
-// opens while no story job is running, so it never fights the Shakedown.
-import { LANDMARKS } from './city.js';
-import { dist2, fmtCash } from './utils.js';
-import { makeCar, placeCar } from './vehicles.js';
+// shops.js — Marina Mart and the two safehouses: what Milo can buy,
+// where he can rest, and the Coral Loft he can own.
 
-export const SHOP_ITEMS = [
-  { id: 'repair', name: 'Full Repair', desc: 'Your car, good as new', price: 200 },
-  { id: 'armor', name: 'Body Armor', desc: 'Heal to full + 50 armor', price: 300 },
-  { id: 'ammo', name: 'Pistol Ammo ×60', desc: 'Sixty rounds for the pistol', price: 120 },
-  { id: 'comet', name: 'Comet GT', desc: 'Your own sports car, parked outside', price: 1500 },
+import { Vehicle } from './vehicles.js';
+import { cashText } from './utils.js';
+
+const ITEMS = [
+  {
+    id: 'repair', label: 'Repair Car', price: 200,
+    desc: 'Patch the car up to full health — or patch Milo up, on foot.',
+    usable(g) {
+      return (g.inCar && g.playerCar.health < 100) || (!g.inCar && g.player.health < 100);
+    },
+    apply(g) {
+      if (g.inCar) g.playerCar.health = 100;
+      else g.player.health = 100;
+    },
+  },
+  {
+    id: 'armor', label: 'Body Armor', price: 300,
+    desc: '+50 armour, up to 100. Armour soaks 60% of every hit.',
+    usable() { return true; },
+    apply(g) {
+      g.player.armor = Math.min(100, g.player.armor + 50);
+    },
+  },
+  {
+    id: 'ammo', label: 'Pistol Ammo', price: 120,
+    desc: '+12 rounds and the pistol itself, if Milo is not carrying it yet.',
+    usable() { return true; },
+    apply(g) {
+      g.player.ammo += 12;
+      g.player.armed = true;
+    },
+  },
+  {
+    id: 'comet', label: 'Comet GT', price: 1500,
+    desc: 'The fastest car in Solmar, parked outside the mart. Yours to keep.',
+    usable(g) { return !g.ownedComet; },
+    apply(g) {
+      g.ownedComet = true;
+      const car = new Vehicle('comet', g.scene);
+      const door = g.city.doorstep('mart');
+      car.x = door.x;
+      car.z = door.z - 10;
+      car.angle = Math.PI / 2;
+      car.sync();
+      g.traffic.park(car);
+    },
+  },
 ];
 
-export class Shops {
-  constructor(scene, world) {
-    this.scene = scene; this.world = world;
+export class Store {
+  constructor(game) {
+    this.game = game;
+    this.panel = document.getElementById('shop');
+    this.listEl = document.getElementById('shopItems');
+    this.cashEl = document.getElementById('shopCash');
   }
-  // the nearest shop within reach, or null
-  nearest(x, z) {
-    let best = null, bd = 9;
-    for (const s of LANDMARKS.shops) {
-      const d = dist2(x, z, s.x, s.z);
-      if (d < bd) { bd = d; best = s; }
-    }
-    return best;
+
+  atMart() {
+    const p = this.game.city.doorstep('mart');
+    return Math.hypot(this.game.player.x - p.x, this.game.player.z - p.z) < 10;
   }
-  buy(itemId) {
-    const item = SHOP_ITEMS.find((i) => i.id === itemId);
-    const w = this.world;
-    if (!item) return false;
-    if (w.cash < item.price) {
-      w.audio.denied();
-      w.hud.toast('Not enough cash — ' + item.name + ' costs ' + fmtCash(item.price) + '.');
-      return false;
+
+  atHome() {
+    const p = this.game.city.doorstep('safehouse');
+    if (Math.hypot(this.game.player.x - p.x, this.game.player.z - p.z) < 9) return 'safehouse';
+    const loft = this.game.city.doorstep('loft');
+    if (this.game.ownedLoft && Math.hypot(this.game.player.x - loft.x, this.game.player.z - loft.z) < 9) return 'loft';
+    return null;
+  }
+
+  atLoft() {
+    const p = this.game.city.doorstep('loft');
+    return Math.hypot(this.game.player.x - p.x, this.game.player.z - p.z) < 9;
+  }
+
+  open() {
+    const g = this.game;
+    g.state = 'shop';
+    g.shopOpen = true;
+    this.listEl.innerHTML = '';
+    for (const item of ITEMS) {
+      const btn = document.createElement('button');
+      btn.className = 'shopbtn';
+      const ok = item.usable(g);
+      btn.disabled = !ok || g.cash < item.price;
+      btn.innerHTML = `<span>${item.label}</span><span class="shopprice">${cashText(item.price)}</span><small>${item.desc}</small>`;
+      btn.addEventListener('click', () => {
+        if (g.cash < item.price || !item.usable(g)) return;
+        g.cash -= item.price;
+        item.apply(g);
+        g.audio.chaChing();
+        g.hud.toast(`Bought ${item.label} for ${cashText(item.price)}`);
+        this.open();
+      });
+      this.listEl.appendChild(btn);
     }
-    if (itemId === 'repair' && !w.playerCar) {
-      w.audio.denied();
-      w.hud.toast('No car to repair — bring a ride first.');
-      return false;
-    }
-    if (itemId === 'comet' && w.inCar) {
-      w.audio.denied();
-      w.hud.toast('Get out of your car first — the Comet parks outside.');
-      return false;
-    }
-    w.cash -= item.price;
-    w.hud.setCash(w.cash);
-    if (itemId === 'repair') {
-      w.playerCar.health = 100;
-      w.hud.toast('Car repaired — good as new.');
-    } else if (itemId === 'armor') {
-      w.player.health = 100;
-      w.armor = 50;
-      w.hud.setHealth(100);
-      w.hud.setArmor(50);
-      w.hud.toast('Body armor on — 50 armor, health full.');
-    } else if (itemId === 'ammo') {
-      w.player.ammo = (w.player.ammo || 0) + 60;
-      w.hud.setAmmo(w.player.ammo);
-      w.hud.toast('Sixty rounds in the pocket.');
-    } else if (itemId === 'comet') {
-      const shop = this.nearest(w.playerX, w.playerZ) || LANDMARKS.shops[0];
-      const car = makeCar('comet', 0xd21f2b);
-      car.owned = true; // yours: stealing it back costs no heat
-      placeCar(car, shop.x + 10, shop.z + 6, Math.PI / 2);
-      this.scene.add(car.group);
-      w.traffic.parked.push(car);
-      w.hud.toast('Your Comet GT is parked outside the shop.');
-    }
-    w.audio.pickup();
-    w.saveGame && w.saveGame();
-    return true;
+    this.cashEl.textContent = `Cash: ${cashText(g.cash)}`;
+    this.panel.style.display = 'block';
+    g.audio.duck(true);
+  }
+
+  close() {
+    const g = this.game;
+    g.state = 'playing';
+    g.shopOpen = false;
+    this.panel.style.display = 'none';
+    g.audio.duck(false);
+  }
+
+  /** Sleep it off: full health, heat gone, two hours pass. */
+  rest() {
+    const g = this.game;
+    const home = this.atHome();
+    if (!home) return;
+    g.player.health = 100;
+    g.police.reset();
+    g.city.setHour(g.city.hour + 2);
+    g.audio.blip(520);
+    g.hud.toast(home === 'loft' ? 'Rested at the Coral Loft — clean slate' : 'Rested at the safehouse — clean slate');
+    g.saveProgress();
+  }
+
+  /** Buy the Coral Loft as a second safehouse. */
+  buyLoft() {
+    const g = this.game;
+    if (g.ownedLoft || g.cash < 2500) return;
+    g.cash -= 2500;
+    g.ownedLoft = true;
+    g.audio.chaChing();
+    g.hud.showBanner('Coral Loft', 'A second safehouse, high above the Neon Strip.');
+    g.saveProgress();
   }
 }

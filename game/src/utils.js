@@ -1,47 +1,60 @@
-// utils.js — small math and seeded-random helpers shared by every module.
-export function mulberry32(seed) {
-  let a = seed >>> 0;
-  return function () {
-    a |= 0; a = (a + 0x6d2b79f5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
+// utils.js — small shared helpers for SOLMAR. No game logic lives here,
+// just the arithmetic and formatting every other module reaches for.
+
+/** Clamp v into [lo, hi]. */
+export function clamp(v, lo, hi) {
+  return v < lo ? lo : v > hi ? hi : v;
 }
-export const clamp = (v, lo, hi) => v < lo ? lo : v > hi ? hi : v;
-export const lerp = (a, b, t) => a + (b - a) * t;
-export const damp = (a, b, lambda, dt) => lerp(a, b, 1 - Math.exp(-lambda * dt));
-// shortest signed angle difference, radians
-export function angDiff(a, b) {
-  let d = (b - a) % (Math.PI * 2);
-  if (d > Math.PI) d -= Math.PI * 2;
-  if (d < -Math.PI) d += Math.PI * 2;
-  return d;
+
+/** Linear interpolation between a and b. */
+export function lerp(a, b, t) {
+  return a + (b - a) * t;
 }
-// step `a` toward `target` by at most `maxStep`, taking the short way round
-// the circle — the camera uses this to settle behind the player/car
+
+/** A random float. rand(10) is [0, 10); rand(4, 9) is [4, 9). */
+export function rand(lo, hi) {
+  if (hi === undefined) {
+    hi = lo;
+    lo = 0;
+  }
+  return lo + Math.random() * (hi - lo);
+}
+
+/** A random integer in [lo, hi]. */
+export function randi(lo, hi) {
+  return Math.floor(rand(lo, hi + 1));
+}
+
+/** One random element of an array. */
+export function pick(arr) {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
+/** Flat (x, z) distance between two points. */
+export function dist2(x1, z1, x2, z2) {
+  return Math.hypot(x2 - x1, z2 - z1);
+}
+
+/** Wrap an angle into (-PI, PI]. */
+export function wrapAngle(a) {
+  while (a > Math.PI) a -= Math.PI * 2;
+  while (a <= -Math.PI) a += Math.PI * 2;
+  return a;
+}
+
+/** Move angle a toward target by at most maxStep radians. */
 export function turnToward(a, target, maxStep) {
-  return a + clamp(angDiff(a, target), -maxStep, maxStep);
+  const d = wrapAngle(target - a);
+  return a + clamp(d, -maxStep, maxStep);
 }
-// integer in [lo, hi] from any rng() that returns [0, 1)
-export function randInt(rng, lo, hi) {
-  return lo + Math.floor(rng() * (hi - lo + 1));
+
+/** "$1,500" style money text. */
+export function cashText(n) {
+  return '$' + Math.round(n).toLocaleString('en-US');
 }
-export function pick(rng, arr) { return arr[Math.floor(rng() * arr.length)]; }
-export function fmtCash(n) {
-  return '$' + Math.floor(n).toLocaleString('en-US');
-}
-export function fmtTime(sec) {
-  sec = Math.max(0, Math.ceil(sec));
-  return Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0');
-}
-// squared ground-plane distance: for radius checks without the sqrt
-export function dist2Sq(ax, az, bx, bz) {
-  const dx = ax - bx, dz = az - bz;
-  return dx * dx + dz * dz;
-}
-// distance on the ground plane
-export function dist2(ax, az, bx, bz) {
-  const dx = ax - bx, dz = az - bz;
-  return Math.sqrt(dx * dx + dz * dz);
+
+/** "2:30" style countdown text for a number of seconds. */
+export function clockText(seconds) {
+  const s = Math.max(0, Math.ceil(seconds));
+  return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
 }

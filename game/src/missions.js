@@ -1,366 +1,396 @@
-// missions.js — Milo's story: five jobs for Cleo Vane, from a first stolen
-// car to the Coral Bank score, plus the repeatable chop-shop sell.
-import * as THREE from 'three';
-import { LANDMARKS } from './city.js';
-import { dist2, fmtCash } from './utils.js';
+// missions.js — Cleo Vane's twelve story jobs, plus the chop-shop where
+// Milo sells the cars he steals.
 
-const JOBS = [
+import { Vehicle } from './vehicles.js';
+
+/**
+ * The story, in order. startAt is where the job begins; time is the
+ * countdown in seconds (0 means no clock); steps are the beats of the job.
+ * Step kinds: enterCar, goto, hold, race, escort, taxi, stealth, loseHeat.
+ */
+export const JOBS = [
   {
-    id: 'wheels', title: 'First Wheels', giver: 'Cleo Vane',
-    brief: 'Cleo: "You owe me, Milo. Start simple — bring me a car. Any car. My garage, Portside side."',
-    objective: 'Steal a car and deliver it to Cleo\u2019s Garage',
-    reward: 400,
+    title: 'First Wheels', payout: 400, startAt: { x: 0, z: 120 },
+    intro: 'Cleo needs a car and she needs it now. Steal one, bring it to her.',
+    steps: [
+      { type: 'enterCar', text: 'Steal any car (E)' },
+      { type: 'goto', at: { x: -150, z: 108 }, r: 10, text: "Bring the car to Cleo's chop-shop" },
+    ],
   },
   {
-    id: 'late', title: 'Running Late', giver: 'Cleo Vane',
-    brief: 'Cleo: "Package for Coral Heights. Two and a half minutes. Drive like the rent is due — it is."',
-    objective: 'Deliver the package to Coral Heights before time runs out',
-    reward: 600, timer: 150,
+    title: 'Running Late', payout: 500, startAt: { x: -150, z: -170 }, time: 90,
+    intro: 'Cleo is waiting at the bank. Ninety seconds, Milo. Do not be late.',
+    steps: [
+      { type: 'goto', at: { x: 150, z: -170 }, r: 10, text: 'Reach Solmar Bank before the clock runs out' },
+    ],
   },
   {
-    id: 'shakedown', title: 'The Shakedown', giver: 'Cleo Vane',
-    brief: 'Cleo: "Three shops in Old Marina owe me. Walk in, hold your ground, walk out with my cut."',
-    objective: 'Collect from all 3 shops in Old Marina (hold E at each door)',
-    reward: 800,
+    title: 'The Shakedown', payout: 650, startAt: { x: 60, z: 60 },
+    intro: 'Two shops owe Cleo protection money. Go and remind them.',
+    steps: [
+      { type: 'hold', at: { x: -150, z: -170 }, r: 8, hold: 2, text: 'Collect from Marina Mart (hold E)' },
+      { type: 'hold', at: { x: 60, z: 60 }, r: 8, hold: 2, text: 'Collect from the Neon Strip (hold E)' },
+    ],
   },
   {
-    id: 'pursuit', title: 'Hot Pursuit', giver: 'Cleo Vane',
-    brief: 'Cleo: "You made the front page, Milo. Three stars. Lose them, then get to the Sunfield safehouse."',
-    objective: 'Lose the wanted level, then reach the Safehouse',
-    reward: 1000,
+    title: 'Hot Pursuit', payout: 800, startAt: { x: -60, z: -60 }, time: 150,
+    intro: 'Four checkpoints, one clock, no brakes. Show the city how you drive.',
+    steps: [
+      { type: 'race', points: [{ x: -120, z: -120 }, { x: 60, z: -120 }, { x: 120, z: 60 }, { x: -60, z: 180 }], text: 'Race through the checkpoints' },
+    ],
   },
   {
-    id: 'score', title: 'The Big Score', giver: 'Cleo Vane',
-    brief: 'Cleo: "Coral Bank. Four minutes of chaos, then the docks. Do this and the debt is gone, Milo."',
-    objective: 'Rob the Coral Bank, then escape to the Portside Docks',
-    reward: 5000,
+    title: 'The Big Score', payout: 1200, startAt: { x: 150, z: -170 }, time: 300,
+    intro: 'The bank vault is soft tonight. Crack it, then vanish.',
+    steps: [
+      { type: 'hold', at: { x: 150, z: -170 }, r: 8, hold: 4, heat: 300, text: 'Crack the bank vault (hold E)' },
+      { type: 'goto', at: { x: -120, z: 222 }, r: 10, text: 'Escape to the docks' },
+    ],
   },
   {
-    id: 'race', title: 'The Neon Grand Prix', giver: 'Cleo Vane',
-    brief: 'Cleo: "Debt paid — now the fun part. The Strip runs a midnight race: four gates, three minutes, in a car. Winner takes $1,200 and the whole city watches."',
-    objective: 'Hit all 4 race gates in order, in a car, before time runs out',
-    reward: 1200, timer: 180,
+    title: 'Neon Grand Prix', payout: 1000, startAt: { x: 120, z: 120 }, time: 180,
+    intro: 'Six gates around the Neon Strip. The whole city is watching.',
+    steps: [
+      { type: 'race', points: [{ x: 120, z: 60 }, { x: 120, z: -60 }, { x: 60, z: -120 }, { x: -60, z: -120 }, { x: -120, z: 0 }, { x: -60, z: 120 }], text: 'Race the Grand Prix circuit' },
+    ],
   },
   {
-    id: 'courier', title: 'Three Drops', giver: 'Cleo Vane',
-    brief: 'Cleo: "Three drops, one run, four minutes. Coral Heights, the docks, then Solmar General. Don\'t keep my customers waiting."',
-    objective: 'Deliver to all 3 stops in order before time runs out',
-    reward: 900, timer: 240,
+    title: 'Three Drops', payout: 900, startAt: { x: -150, z: -170 }, time: 240,
+    intro: 'Three packages, three corners of the city. Do not open them.',
+    steps: [
+      { type: 'goto', at: { x: 150, z: -170 }, r: 8, text: 'Drop 1 of 3: Coral Heights' },
+      { type: 'goto', at: { x: -120, z: 222 }, r: 8, text: 'Drop 2 of 3: the docks' },
+      { type: 'goto', at: { x: -150, z: -170 }, r: 8, text: 'Drop 3 of 3: Old Marina' },
+    ],
   },
   {
-    id: 'escort', title: 'The Bodyguard', giver: 'Cleo Vane',
-    brief: 'Cleo: "My associate rides with you to the Safehouse. The PD knows his face — three stars and counting. Get him there in one piece."',
-    objective: 'Drive the associate to the Safehouse with 3 stars on you',
-    reward: 1100,
+    title: 'The Bodyguard', payout: 1100, startAt: { x: -150, z: -170 },
+    intro: 'A friend of Cleo is driving across town. Keep him alive.',
+    steps: [
+      { type: 'escort', text: 'Stay close to the VIP until he reaches the bank' },
+    ],
   },
   {
-    id: 'heist', title: 'The Marina Heist', giver: 'Cleo Vane',
-    brief: 'Cleo: "Two vaults, one night. Crack the docks warehouse, then the Coral Bank vault — and get out before the whole city wakes up."',
-    objective: 'Crack the warehouse, then the bank vault, then escape to the Garage',
-    reward: 2000,
+    title: 'The Marina Heist', payout: 2000, startAt: { x: -90, z: 215 },
+    intro: 'The warehouse, then the vault, then gone. Cleo is counting on you.',
+    steps: [
+      { type: 'hold', at: { x: -90, z: 215 }, r: 8, hold: 3, heat: 150, text: 'Crack the warehouse (hold E)' },
+      { type: 'hold', at: { x: 150, z: -170 }, r: 8, hold: 4, heat: 500, text: 'Crack the bank vault (hold E)' },
+      { type: 'goto', at: { x: -120, z: 222 }, r: 10, text: 'Escape to the docks' },
+    ],
   },
   {
-    id: 'stealth', title: 'Quiet Night', giver: 'Cleo Vane',
-    brief: 'Cleo: "The bank vault, no noise, no heat. One star on you and the job is blown. Walk in quiet, walk out rich."',
-    objective: 'Crack the Coral Bank vault without ever gaining a wanted star',
-    reward: 1500,
+    title: 'Quiet Night', payout: 1500, startAt: { x: -120, z: -120 }, stealth: true,
+    intro: 'One quiet job at the bank. If the PD sees you, it is over.',
+    steps: [
+      { type: 'stealth', at: { x: 150, z: -170 }, r: 8, text: 'Reach the bank without being spotted' },
+    ],
   },
   {
-    id: 'taxi', title: 'Night Shift', giver: 'Cleo Vane',
-    brief: 'Cleo: "The cab needs a driver tonight. Three fares around town — pick them up, drop them off, keep the meter running."',
-    objective: 'Pick up 3 fares in a car and drop each one off ($250 a fare)',
-    reward: 600,
+    title: 'Night Shift', payout: 600, startAt: { x: 60, z: -60 },
+    intro: 'Three fares across Solmar. The meter is running, Milo.',
+    steps: [
+      { type: 'taxi', text: 'Pick up fares and drop them off' },
+    ],
   },
   {
-    id: 'getaway', title: 'The Getaway', giver: 'Cleo Vane',
-    brief: 'Cleo: "Four stars, Milo, and every cruiser in Solmar is on you. Lose them, then vanish at the docks."',
-    objective: 'Lose the 4-star wanted level, then reach the Portside Docks',
-    reward: 1400,
+    title: 'The Getaway', payout: 1400, startAt: { x: -120, z: 222 }, heat: 700,
+    intro: 'Four stars and a full tank. Lose the heat, then reach the docks.',
+    steps: [
+      { type: 'loseHeat', text: 'Lose the heat (get to zero stars)' },
+      { type: 'goto', at: { x: -120, z: 222 }, r: 10, text: 'Reach the docks' },
+    ],
   },
 ];
 
-export const JOB_TOTAL = JOBS.length;
+export class Story {
+  constructor(game) {
+    this.game = game;
+    this.list = JOBS;
+    this.idx = 0;
+    this.current = null;
+    this.finished = false;
+    this.startedIdx = 0;
+  }
 
-// three-drops route: three landmarks, in order, against the clock
-const COURIER_DROPS = [LANDMARKS.delivery, LANDMARKS.docks, LANDMARKS.hospital];
-// night-shift fares: pickup -> drop-off, $250 a fare, in a car
-const TAXI_FARES = [
-  // the fare waits on the street outside PD HQ: the station itself is a
-  // solid building, and no car (or pedestrian) can reach its centre
-  { pick: { x: 74, z: 37, label: 'Solmar PD HQ' }, drop: LANDMARKS.bank, fare: 250 },
-  { pick: LANDMARKS.hospital, drop: LANDMARKS.garage, fare: 250 },
-  { pick: LANDMARKS.docks, drop: LANDMARKS.safehouse, fare: 250 },
-];
+  get active() {
+    return this.current;
+  }
 
-// the grand prix route: four road intersections, one per corner of the city
-const RACE_GATES = [
-  { x: 148, z: -148, label: 'Race Gate 1' },
-  { x: -148, z: -148, label: 'Race Gate 2' },
-  { x: -148, z: 148, label: 'Race Gate 3' },
-  { x: 148, z: 148, label: 'Race Gate 4' },
-];
+  /** Clearing the active job abandons it (used by the playtest probe). */
+  set active(v) {
+    if (v === null) this.teardown();
+  }
 
-export class Missions {
-  constructor(scene, world) {
-    this.world = world;
-    this.index = 0; // next job to start
-    this.active = null;
-    this.stage = 0; // per-job stage
-    this.holdT = 0; this.holdNeed = 0;
-    this.shopsDone = 0;
-    this.timer = 0;
-    this.storyDone = false;
-    // 3D beacon: light pillar + bouncing arrow
-    const mat = new THREE.MeshBasicMaterial({ color: 0xffd23e, transparent: true, opacity: 0.35, depthWrite: false });
-    this.beacon = new THREE.Mesh(new THREE.CylinderGeometry(2.2, 2.2, 60, 12, 1, true), mat);
-    this.beacon.visible = false;
-    scene.add(this.beacon);
-    const arrow = new THREE.Mesh(new THREE.ConeGeometry(1.1, 2.2, 4),
-      new THREE.MeshBasicMaterial({ color: 0xffd23e }));
-    arrow.rotation.x = Math.PI;
-    this.arrow = arrow; this.arrow.visible = false;
-    scene.add(arrow);
-    this.beaconT = 0;
+  get index() {
+    return this.idx;
   }
-  current() { return this.active ? JOBS[this.index] : null; }
-  start(index) {
-    this.index = index;
-    this.active = JOBS[index];
-    this.stage = 0; this.holdT = 0; this.shopsDone = 0;
-    this.timer = this.active.timer || 0;
-    if (this.active.id === 'pursuit') this.world.police.addHeat(500, 'mission');
-    if (this.active.id === 'escort') this.world.police.addHeat(500, 'mission');
-    if (this.active.id === 'getaway') this.world.police.addHeat(800, 'mission');
-    if (this.active.id === 'stealth') {
-      this.world.police.clear(); // Quiet Night starts clean
-      this.world.audio.heliStop && this.world.audio.heliStop();
+
+  get stage() {
+    return this.current ? this.current.stage : 0;
+  }
+
+  get timer() {
+    return this.current ? this.current.timer : 0;
+  }
+
+  get storyDone() {
+    return this.finished;
+  }
+
+  /** Begin job i: teleport Milo to its start and set up its moving parts. */
+  start(i) {
+    const g = this.game;
+    if (i >= JOBS.length) return;
+    // Starting a job abandons any job already running (and its VIP car).
+    if (this.current) this.teardown();
+    const job = JOBS[i];
+    this.startedIdx = i;
+    if (g.inCar) g.leaveCar();
+    g.player.setPosition(job.startAt.x, job.startAt.z, 0);
+    g.player.angle = Math.PI;
+    const active = {
+      job,
+      title: job.title,
+      stage: 0,
+      timer: job.time || 0,
+      holdT: 0,
+      raceIdx: 0,
+      fares: null,
+      fare: 0,
+      fareStage: 0,
+      farT: 0,
+      vip: null,
+      vipRoute: null,
+      vipLeg: 0,
+    };
+    if (job.heat) g.police.addHeat(job.heat, 'the getaway');
+    const step0 = job.steps[0];
+    if (step0.type === 'escort') {
+      const vip = new Vehicle('sunrunner', g.scene);
+      vip.x = -150;
+      vip.z = -170;
+      vip.angle = Math.PI / 2;
+      vip.sync();
+      active.vip = vip;
+      active.vipRoute = [
+        { x: -60, z: -180 }, { x: 60, z: -180 }, { x: 120, z: -180 }, { x: 150, z: -170 },
+      ];
+      active.vipLeg = 0;
     }
-    this.world.hud.toast(this.active.giver + ': ' + this.active.brief);
-    this.world.hud.setObjective(this.active.title, this.active.objective);
-    this.world.audio.jingle();
-  }
-  complete() {
-    const job = this.active;
-    this.world.cash += job.reward;
-    this.world.hud.toast('JOB DONE — ' + job.title + '  +' + fmtCash(job.reward));
-    this.world.audio.missionFanfare();
-    // first job done: Cleo trusts Milo with a pistol from here on
-    if (job.id === 'wheels' && this.world.player && !this.world.player.armed) {
-      this.world.player.armed = true;
-      this.world.player.ammo = 60;
-      this.world.hud.setAmmo(60);
-      this.world.hud.toast('Cleo: "You\'re one of us now, Milo. Take this — you\'ll need it."');
+    if (step0.type === 'taxi') {
+      active.fares = [];
+      for (let f = 0; f < 3; f++) {
+        const a = g.city.roadPoint();
+        const b = g.city.roadPoint();
+        active.fares.push({ pickup: { x: a.x, z: a.z }, dropoff: { x: b.x, z: b.z } });
+      }
     }
-    // save AFTER the index moves, or continuing replays the job just done
-    this.active = null;
-    this.beacon.visible = false; this.arrow.visible = false;
-    this.index++;
-    if (this.index >= JOBS.length) {
-      this.storyDone = true;
-      this.world.hud.setObjective('KINGPIN OF SOLMAR', 'Story complete. The city is yours — free roam.');
-      this.world.hud.toast('Cleo: "Debt paid, Milo. Solmar is yours now."');
-    } else {
-      this.world.hud.setObjective('Next job incoming…', 'Cleo is calling with the next job.');
-      this.world.nextJobIn = 4;
-    }
-    this.world.saveGame && this.world.saveGame();
+    this.current = active;
+    g.hud.setJob(job.title, job.intro);
+    g.hud.showBanner(job.title, job.intro);
+    g.audio.blip(660);
   }
-  fail(why) {
-    this.world.hud.toast('JOB FAILED — ' + why + '. Try again.');
-    this.world.audio.denied();
-    this.active = null;
-    this.beacon.visible = false; this.arrow.visible = false;
-    this.world.nextJobIn = 3;
+
+  /** Where the next job begins (null when the story is done). */
+  nextStartPoint() {
+    if (this.finished || this.idx >= JOBS.length) return null;
+    return JOBS[this.idx].startAt;
   }
+
+  /** The current objective's map position, or null when idle. */
   target() {
-    if (!this.active) return null;
-    switch (this.active.id) {
-      case 'wheels': return this.stage === 0 ? null : LANDMARKS.garage;
-      case 'late': return LANDMARKS.delivery;
-      case 'shakedown': return this.shopsDone < 3 ? LANDMARKS.shops[this.shopsDone] : null;
-      case 'pursuit': return LANDMARKS.safehouse;
-      case 'score': return this.stage === 0 ? LANDMARKS.bank : LANDMARKS.docks;
-      case 'race': return RACE_GATES[this.stage] || null;
-      case 'courier': return COURIER_DROPS[this.stage] || null;
-      case 'escort': return LANDMARKS.safehouse;
-      case 'heist': return this.stage === 0 ? LANDMARKS.docks : this.stage === 1 ? LANDMARKS.bank : LANDMARKS.garage;
-      case 'stealth': return LANDMARKS.bank;
-      case 'taxi': {
-        const f = TAXI_FARES[Math.floor(this.stage / 2)];
-        return f ? (this.stage % 2 === 0 ? f.pick : f.drop) : null;
+    if (this.current) {
+      const step = this.current.job.steps[this.current.stage];
+      if (!step) return null;
+      if (step.type === 'race') return step.points[Math.min(this.current.raceIdx, step.points.length - 1)];
+      if (step.type === 'escort') {
+        return this.current.vip ? { x: this.current.vip.x, z: this.current.vip.z } : null;
       }
-      case 'getaway': return LANDMARKS.docks;
-      default: return null;
-    }
-  }
-  // hold-E interaction at the current target; returns {label, progress} or null
-  interact() {
-    if (!this.active) return null;
-    const t = this.target();
-    if (!t) return null;
-    const d = dist2(this.world.playerX, this.world.playerZ, t.x, t.z);
-    if (d > 7) return null;
-    // the vault, warehouse and shakedown jobs are on-foot work: while driving,
-    // E just parks the car (the taxi is the one job done from the driver's seat)
-    const onFootJob = ['shakedown', 'score', 'heist', 'stealth'].includes(this.active.id);
-    if (onFootJob && this.world.inCar) return null;
-    if (this.active.id === 'shakedown') return { label: 'Collecting protection money…', need: 3 };
-    if (this.active.id === 'score' && this.stage === 0) return { label: 'Cracking the vault…', need: 4 };
-    if (this.active.id === 'heist' && this.stage === 0) return { label: 'Cracking the warehouse…', need: 4 };
-    if (this.active.id === 'heist' && this.stage === 1) return { label: 'Cracking the bank vault…', need: 4 };
-    if (this.active.id === 'stealth' && this.stage === 0) return { label: 'Cracking the vault, quietly…', need: 5 };
-    if (this.active.id === 'taxi' && this.stage % 2 === 0) {
-      if (!this.world.inCar) return null; // fares only ride in a car
-      return { label: 'Picking up the fare…', need: 2 };
-    }
-    return null;
-  }
-  advanceHold(dt) {
-    const it = this.interact();
-    if (!it) { this.holdT = 0; return 0; }
-    this.holdT += dt;
-    const p = Math.min(1, this.holdT / it.need);
-    if (p >= 1) {
-      this.holdT = 0;
-      if (this.active.id === 'shakedown') {
-        this.shopsDone++;
-        this.world.cash += 150;
-        this.world.audio.pickup();
-        if (this.shopsDone === 3) { this.complete(); return 1; }
-        if (this.shopsDone === 2) this.world.police.addHeat(200, 'shopkeeper called the cops');
-        this.world.hud.toast('Collected $150. ' + (3 - this.shopsDone) + ' shop(s) left.');
-        this.world.hud.setObjective(this.active.title, 'Collect from all 3 shops (' + this.shopsDone + '/3 done)');
-      } else if (this.active.id === 'score' && this.stage === 0) {
-        this.stage = 1;
-        this.world.police.addHeat(700, 'bank alarm');
-        this.world.audio.jingle();
-        this.world.hud.toast('Vault open — $5,000 in the bag. RUN to the docks!');
-        this.world.hud.setObjective(this.active.title, 'Escape to the Portside Docks — 4 stars on you');
-      } else if (this.active.id === 'heist' && this.stage === 0) {
-        this.stage = 1;
-        this.world.audio.pickup();
-        this.world.hud.toast('Warehouse cracked — now the Coral Bank vault!');
-        this.world.hud.setObjective(this.active.title, 'Crack the Coral Bank vault');
-      } else if (this.active.id === 'heist' && this.stage === 1) {
-        this.stage = 2;
-        this.world.police.addHeat(700, 'bank alarm');
-        this.world.audio.jingle();
-        this.world.hud.toast('Both vaults cracked — $2,000 in the bag. RUN to the garage!');
-        this.world.hud.setObjective(this.active.title, 'Escape to Cleo\u2019s Garage — 4 stars on you');
-      } else if (this.active.id === 'stealth' && this.stage === 0) {
-        this.stage = 1;
-        this.world.audio.missionFanfare();
-        this.world.hud.toast('Vault cracked — not a single star. Cleo is impressed.');
-        this.complete(); return 1;
-      } else if (this.active.id === 'taxi' && this.stage % 2 === 0) {
-        const f = TAXI_FARES[Math.floor(this.stage / 2)];
-        this.stage++;
-        this.world.audio.pickup();
-        this.world.hud.toast('Fare aboard — take them to ' + f.drop.label + '.');
-        this.world.hud.setObjective(this.active.title, 'Drop the fare at ' + f.drop.label + '  ·  $250');
+      if (step.type === 'taxi') {
+        const fare = this.current.fares[this.current.fare];
+        if (!fare) return null;
+        return this.current.fareStage === 0 ? fare.pickup : fare.dropoff;
       }
+      if (step.type === 'loseHeat') return { x: -120, z: 222 };
+      if (step.type === 'enterCar') {
+        const near = this.game.traffic.closestParked(this.game.player.x, this.game.player.z, 400);
+        return near ? { x: near.x, z: near.z } : { x: -150, z: 108 };
+      }
+      return step.at || null;
     }
-    return p;
+    return this.nextStartPoint();
   }
-  update(dt, world) {
-    if (!this.active) {
-      // chop-shop: sell a stolen car at the garage when free-roaming
-      if (world.playerCar && dist2(world.playerX, world.playerZ, LANDMARKS.garage.x, LANDMARKS.garage.z) < 8) {
-        world.chopOffer = world.playerCar;
-      } else world.chopOffer = null;
-      this.beacon.visible = false; this.arrow.visible = false;
-      return;
-    }
-    const job = this.active;
-    if (job.timer) {
-      this.timer -= dt;
-      world.hud.setTimer(this.timer);
-      if (this.timer <= 0) { world.hud.setTimer(null); this.fail('Out of time'); return; }
-    }
-    const t = this.target();
-    if (t) {
-      this.beacon.visible = true; this.arrow.visible = true;
-      this.beacon.position.set(t.x, 30, t.z);
-      this.beaconT += dt;
-      this.arrow.position.set(t.x, 14 + Math.sin(this.beaconT * 3) * 1.5, t.z);
-      // the race objective counts gates as they fall
-      const label = job.id === 'race'
-        ? 'Race gate ' + (this.stage + 1) + ' of ' + RACE_GATES.length + ' — drive!'
-        : job.id === 'courier'
-          ? 'Drop ' + (this.stage + 1) + ' of 3 — ' + t.label
-          : job.id === 'taxi'
-            ? (this.stage % 2 === 0
-              ? 'Pick up fare ' + (Math.floor(this.stage / 2) + 1) + ' of 3 at ' + t.label + ' (in a car)'
-              : 'Drop the fare at ' + t.label + '  ·  $250')
-            : job.objective;
-      world.hud.setObjective(job.title, label + '  ·  ' + Math.round(dist2(world.playerX, world.playerZ, t.x, t.z)) + 'm');
+
+  fail(why) {
+    const g = this.game;
+    if (!this.current) return;
+    const title = this.current.title;
+    this.teardown();
+    g.hud.showBanner('Job failed', `${title} — ${why}`);
+    g.audio.lose();
+  }
+
+  complete() {
+    const g = this.game;
+    const job = this.current.job;
+    const payout = job.payout;
+    this.teardown();
+    g.addCash(payout, `Job done: ${job.title} +$${payout}`);
+    g.audio.win();
+    this.idx = this.startedIdx + 1;
+    if (this.idx >= JOBS.length) {
+      this.finished = true;
+      g.hud.showBanner('Kingpin of Solmar', 'All twelve jobs done. The city is yours, Milo.');
+      g.hud.setJob('Story complete', 'Every job for Cleo is done. Solmar is yours.');
     } else {
-      this.beacon.visible = false; this.arrow.visible = false;
+      const next = JOBS[this.idx];
+      g.hud.setJob('Between jobs', `Next: ${next.title} — ${next.intro}`);
     }
-    // arrival checks
-    if (job.id === 'wheels' && this.stage === 0 && world.playerCar) {
-      this.stage = 1;
-      world.hud.setObjective(job.title, 'Deliver the car to Cleo\u2019s Garage');
+    g.saveProgress();
+  }
+
+  teardown() {
+    if (this.current && this.current.vip) {
+      this.game.scene.remove(this.current.vip.group);
+      this.current.vip = null;
     }
-    if (job.id === 'wheels' && this.stage === 1 && world.playerCar &&
-      dist2(world.playerX, world.playerZ, LANDMARKS.garage.x, LANDMARKS.garage.z) < 9) {
-      world.removePlayerCar();
-      this.complete(); return;
-    }
-    if (job.id === 'late' && dist2(world.playerX, world.playerZ, LANDMARKS.delivery.x, LANDMARKS.delivery.z) < 8) {
-      world.hud.setTimer(null); this.complete(); return;
-    }
-    if (job.id === 'pursuit' && world.police.stars === 0 &&
-      dist2(world.playerX, world.playerZ, LANDMARKS.safehouse.x, LANDMARKS.safehouse.z) < 9) {
-      this.complete(); return;
-    }
-    if (job.id === 'score' && this.stage === 1 &&
-      dist2(world.playerX, world.playerZ, LANDMARKS.docks.x, LANDMARKS.docks.z) < 9) {
-      this.complete(); return;
-    }
-    if (job.id === 'race') {
-      const gate = RACE_GATES[this.stage];
-      if (gate && dist2(world.playerX, world.playerZ, gate.x, gate.z) < 9) {
-        this.stage++;
-        this.world.audio.pickup();
-        if (this.stage >= RACE_GATES.length) { world.hud.setTimer(null); this.complete(); return; }
-        this.world.hud.toast('Gate ' + this.stage + '/' + RACE_GATES.length + ' — next gate is marked. Keep it pinned!');
+    this.current = null;
+  }
+
+  /** Advance the active job one frame. */
+  step(dt) {
+    const g = this.game;
+    const a = this.current;
+    if (!a) return;
+    if (a.timer > 0) {
+      a.timer -= dt;
+      if (a.timer <= 0) {
+        a.timer = 0;
+        this.fail('Out of time');
+        return;
       }
     }
-    if (job.id === 'courier') {
-      const drop = COURIER_DROPS[this.stage];
-      if (drop && dist2(world.playerX, world.playerZ, drop.x, drop.z) < 8) {
-        this.stage++;
-        this.world.audio.pickup();
-        if (this.stage >= COURIER_DROPS.length) { world.hud.setTimer(null); this.complete(); return; }
-        this.world.hud.toast('Drop ' + this.stage + '/3 done — next: ' + COURIER_DROPS[this.stage].label + '.');
-      }
-    }
-    if (job.id === 'escort' &&
-      dist2(world.playerX, world.playerZ, LANDMARKS.safehouse.x, LANDMARKS.safehouse.z) < 9) {
-      this.complete(); return;
-    }
-    if (job.id === 'heist' && this.stage === 2 &&
-      dist2(world.playerX, world.playerZ, LANDMARKS.garage.x, LANDMARKS.garage.z) < 9) {
-      this.complete(); return;
-    }
-    if (job.id === 'stealth' && world.police.stars > 0) {
-      this.fail('Spotted — the job is blown');
+    const step = a.job.steps[a.stage];
+    if (!step) {
+      this.complete();
       return;
     }
-    if (job.id === 'taxi' && this.stage % 2 === 1) {
-      const f = TAXI_FARES[Math.floor(this.stage / 2)];
-      if (f && dist2(world.playerX, world.playerZ, f.drop.x, f.drop.z) < 8) {
-        this.world.cash += f.fare;
-        this.world.audio.cashChime();
-        this.world.hud.toast('Fare paid +' + fmtCash(f.fare) + '.');
-        this.stage++;
-        if (this.stage >= TAXI_FARES.length * 2) { this.complete(); return; }
+    const px = g.player.x;
+    const pz = g.player.z;
+    const near = (at, r) => Math.hypot(px - at.x, pz - at.z) < r;
+    const advance = () => {
+      a.stage += 1;
+      a.holdT = 0;
+      if (a.stage >= a.job.steps.length) this.complete();
+      else g.hud.setJob(a.job.title, a.job.steps[a.stage].text);
+    };
+
+    if (step.type === 'enterCar') {
+      if (g.inCar) advance();
+    } else if (step.type === 'goto') {
+      if (near(step.at, step.r)) advance();
+    } else if (step.type === 'hold') {
+      const onFoot = !g.inCar;
+      if (onFoot && near(step.at, step.r) && g.input.eHeld) {
+        a.holdT += dt;
+        g.hud.setHold(a.holdT / step.hold);
+        if (a.holdT >= step.hold) {
+          g.hud.setHold(0);
+          if (step.heat) g.police.addHeat(step.heat, 'cracking a safe');
+          advance();
+        }
+      } else {
+        a.holdT = Math.max(0, a.holdT - dt * 2);
+        g.hud.setHold(a.holdT / step.hold);
       }
+    } else if (step.type === 'race') {
+      const cp = step.points[a.raceIdx];
+      if (cp && near(cp, 9)) {
+        a.raceIdx += 1;
+        g.audio.blip(990);
+        g.hud.flash(`Checkpoint ${a.raceIdx} of ${step.points.length}`);
+        if (a.raceIdx >= step.points.length) {
+          g.bests.bestRace = Math.min(g.bests.bestRace || 999, Math.round((a.job.time || 0) - a.timer));
+          advance();
+        }
+      }
+    } else if (step.type === 'escort') {
+      const vip = a.vip;
+      if (!vip) {
+        this.fail('The VIP is gone');
+        return;
+      }
+      const dest = a.vipRoute[a.vipLeg];
+      const dx = dest.x - vip.x;
+      const dz = dest.z - vip.z;
+      const d = Math.hypot(dx, dz);
+      if (d < 6) {
+        a.vipLeg += 1;
+        if (a.vipLeg >= a.vipRoute.length) {
+          advance();
+          return;
+        }
+      } else {
+        vip.angle = Math.atan2(dx, dz);
+        const sp = 13;
+        vip.x += Math.sin(vip.angle) * sp * dt;
+        vip.z += Math.cos(vip.angle) * sp * dt;
+        vip.sync();
+      }
+      const gap = Math.hypot(px - vip.x, pz - vip.z);
+      if (gap > 70) {
+        a.farT += dt;
+        if (a.farT > 8) {
+          this.fail('You lost the VIP');
+          return;
+        }
+      } else {
+        a.farT = 0;
+      }
+    } else if (step.type === 'taxi') {
+      const fare = a.fares[a.fare];
+      if (!fare) {
+        this.complete();
+        return;
+      }
+      if (a.fareStage === 0 && near(fare.pickup, 8)) {
+        a.fareStage = 1;
+        g.hud.flash('Passenger aboard — take them to the marker');
+        g.audio.blip(880);
+      } else if (a.fareStage === 1 && near(fare.dropoff, 8)) {
+        g.addCash(250, 'Fare paid +$250');
+        g.audio.chaChing();
+        a.fare += 1;
+        a.fareStage = 0;
+        if (a.fare >= a.fares.length) {
+          advance();
+        }
+      }
+    } else if (step.type === 'stealth') {
+      if (g.police.level > 0) {
+        this.fail('The PD spotted you');
+        return;
+      }
+      if (near(step.at, step.r)) advance();
+    } else if (step.type === 'loseHeat') {
+      if (g.police.heat <= 0) advance();
     }
-    if (job.id === 'getaway' && world.police.stars === 0 &&
-      dist2(world.playerX, world.playerZ, LANDMARKS.docks.x, LANDMARKS.docks.z) < 9) {
-      this.complete(); return;
+  }
+
+  /** Sell the car Milo is driving to Cleo: 60% of its value, $150 floor. */
+  sellStolen() {
+    const g = this.game;
+    const car = g.playerCar;
+    if (!car || !g.inCar) return;
+    if (car.key === 'cruiser') {
+      g.hud.flash("Cleo won't touch a PD cruiser");
+      return;
     }
+    const value = car.wrecked ? 150 : Math.max(150, Math.round((car.def.price || 1000) * 0.6));
+    g.leaveCar();
+    g.traffic.drop(car);
+    g.addCash(value, `Sold the ${car.name} to Cleo +$${value}`);
+    g.audio.chaChing();
   }
 }
