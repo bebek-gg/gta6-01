@@ -1,142 +1,111 @@
-// pedestrians.js — the crowd of Solmar: 44 walkers who stroll the
-// sidewalks, scatter from gunfire and fast cars, and pick themselves up
-// after being knocked down.
-
+// pedestrians.js — the people of Solmar: 48 walkers on the sidewalks who
+// stroll between intersections and scatter when a car or a gunshot comes near.
 import * as THREE from 'three';
-import { dist2, pick, rand } from './utils.js';
-import { ROADS } from './city.js';
+import { rand, randInt, pick, dist2, clamp } from './utils.js';
 
-const SHIRTS = [0xe86a5a, 0x3ab8ff, 0xffd23a, 0x7ae0c8, 0xc98ad8, 0x8ab85a, 0xe8e4da, 0x5a6a7a];
-const PANTS = [0x2e3138, 0x4a3a2a, 0x2a3a5a, 0x5a5a5a];
+const SHIRTS = [0xd85a5a, 0x5a8ad8, 0x5ad88a, 0xd8c85a, 0x9a5ad8, 0xe8e8e8, 0x5ad8d8, 0xd88a5a];
+const pedGeo = new THREE.CapsuleGeometry(0.42, 0.9, 4, 8);
+const headGeo = new THREE.SphereGeometry(0.26, 8, 6);
+const skinMat = new THREE.MeshLambertMaterial({ color: 0xd8a878 });
 
-function buildWalkerMesh() {
-  const g = new THREE.Group();
-  const shirt = new THREE.MeshLambertMaterial({ color: pick(SHIRTS) });
-  const pants = new THREE.MeshLambertMaterial({ color: pick(PANTS) });
-  const skin = new THREE.MeshLambertMaterial({ color: pick([0xe8b88a, 0xc98a5a, 0x8a5a38, 0xf2c9a0]) });
-  const legs = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.8, 0.24), pants);
-  legs.position.y = 0.4;
-  g.add(legs);
-  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.65, 0.3), shirt);
-  torso.position.y = 1.12;
-  torso.castShadow = true;
-  g.add(torso);
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.22, 10, 8), skin);
-  head.position.y = 1.68;
-  head.castShadow = true;
-  g.add(head);
-  const hair = new THREE.Mesh(
-    new THREE.SphereGeometry(0.23, 10, 8, 0, Math.PI * 2, 0, Math.PI / 2),
-    new THREE.MeshLambertMaterial({ color: pick([0x1a1a1a, 0x4a2a1a, 0x8a7a5a, 0xd8d8d8]) }),
-  );
-  hair.position.y = 1.72;
-  g.add(hair);
-  return g;
-}
+export function createPedestrians(scene, city) {
+  const peds = [];
+  const ROAD = [];
+  for (let v = -240; v <= 240; v += 40) ROAD.push(v);
 
-/** One person on the street. */
-function makeWalker(city, scene) {
-  const p = city.sidewalkPoint();
-  const w = {
-    group: buildWalkerMesh(),
-    x: p.x,
-    z: p.z,
-    angle: pick([0, Math.PI / 2, Math.PI, -Math.PI / 2]),
-    speed: rand(0.9, 1.7),
-    down: 0,
-    fleeing: 0,
-    bob: rand(0, Math.PI * 2),
-  };
-  w.group.position.set(w.x, 0, w.z);
-  w.group.rotation.y = w.angle;
-  scene.add(w.group);
-  return w;
-}
-
-export class Crowd {
-  constructor(city, scene) {
-    this.city = city;
-    this.scene = scene;
-    this.walkers = [];
-    for (let i = 0; i < 44; i++) this.walkers.push(makeWalker(city, scene));
+  function snapRoad(v) {
+    return Math.round(v / 40) * 40;
   }
 
-  get count() {
-    return this.walkers.length;
+  function pickTarget(fromX, fromZ) {
+    const ix = snapRoad(fromX);
+    const iz = snapRoad(fromZ);
+    const dirs = [[40, 0], [-40, 0], [0, 40], [0, -40]];
+    const options = [];
+    for (const [dx, dz] of dirs) {
+      const nx = ix + dx;
+      const nz = iz + dz;
+      if (nx >= -240 && nx <= 240 && nz >= -240 && nz <= 240) options.push({ x: nx, z: nz });
+    }
+    return pick(options);
   }
 
-  /** The walkers, under the name the probe reads. */
-  get peds() {
-    return this.walkers;
+  function spawnPed() {
+    const p = city.randomRoadPoint();
+    const group = new THREE.Group();
+    const body = new THREE.Mesh(pedGeo, new THREE.MeshLambertMaterial({ color: pick(SHIRTS) }));
+    body.position.y = 0.95;
+    group.add(body);
+    const head = new THREE.Mesh(headGeo, skinMat);
+    head.position.y = 1.85;
+    group.add(head);
+    group.position.set(p.x, 0, p.z);
+    scene.add(group);
+    const t = pickTarget(p.x, p.z);
+    const ped = {
+      x: p.x,
+      z: p.z,
+      tx: t.x,
+      tz: t.z,
+      angle: rand(0, Math.PI * 2),
+      speed: rand(1.1, 2.1),
+      group,
+      fleeT: 0,
+      sync() {
+        group.position.set(this.x, 0, this.z);
+        group.rotation.y = this.angle;
+      },
+    };
+    ped.sync();
+    peds.push(ped);
+    return ped;
   }
 
-  /** Knock a walker down for a few seconds. */
-  knockDown(w, secs = 3) {
-    if (!w || w.down > 0) return;
-    w.down = secs;
-    w.group.rotation.z = Math.PI / 2;
-    w.group.position.y = 0.25;
-  }
+  for (let i = 0; i < 48; i++) spawnPed();
 
-  /** Walk the sidewalks; run from danger; get back up when the dust settles. */
-  step(dt, px, pz, dangerSpeed) {
-    for (const w of this.walkers) {
-      if (w.down > 0) {
-        w.down -= dt;
-        if (w.down <= 0) {
-          w.group.rotation.z = 0;
-          w.group.position.y = 0;
-          w.angle = pick([0, Math.PI / 2, Math.PI, -Math.PI / 2]);
-        }
-        continue;
+
+  function update(dt, playerX, playerZ, inCar) {
+    for (const ped of peds) {
+      // Scatter when a car bears down on the sidewalk.
+      if (inCar && dist2(ped.x, ped.z, playerX, playerZ) < 12) {
+        ped.fleeT = 2.5;
       }
-      const d = dist2(w.x, w.z, px, pz);
-      const scared = d < 12 && dangerSpeed > 6;
-      if (scared) w.fleeing = 1.2;
-      let speed = w.speed;
-      let targetAngle = w.angle;
-      if (w.fleeing > 0) {
-        w.fleeing -= dt;
-        speed = 4.2;
-        // Run directly away from the threat.
-        targetAngle = Math.atan2(w.x - px, w.z - pz);
+      if (ped.fleeT > 0) {
+        ped.fleeT -= dt;
+        const dx = ped.x - playerX;
+        const dz = ped.z - playerZ;
+        const d = Math.max(0.1, Math.sqrt(dx * dx + dz * dz));
+        ped.angle = Math.atan2(dx / d, dz / d);
+        ped.x += Math.sin(ped.angle) * 4.5 * dt;
+        ped.z += Math.cos(ped.angle) * 4.5 * dt;
       } else {
-        // Amble along the sidewalk; turn at random, stay near a road.
-        if (Math.random() < dt * 0.12) {
-          targetAngle = w.angle + pick([-Math.PI / 2, Math.PI / 2, Math.PI]);
+        const d = dist2(ped.x, ped.z, ped.tx, ped.tz);
+        if (d < 5) {
+          const t = pickTarget(ped.tx, ped.tz);
+          ped.tx = t.x;
+          ped.tz = t.z;
         }
+        const want = Math.atan2(ped.tx - ped.x, ped.tz - ped.z);
+        let diff = want - ped.angle;
+        while (diff > Math.PI) diff -= Math.PI * 2;
+        while (diff < -Math.PI) diff += Math.PI * 2;
+        ped.angle += diff * Math.min(1, dt * 3);
+        ped.x += Math.sin(ped.angle) * ped.speed * dt;
+        ped.z += Math.cos(ped.angle) * ped.speed * dt;
       }
-      // Ease the heading toward the target instead of snapping.
-      let diff = targetAngle - w.angle;
-      while (diff > Math.PI) diff -= Math.PI * 2;
-      while (diff < -Math.PI) diff += Math.PI * 2;
-      w.angle += Math.max(-2.4 * dt, Math.min(2.4 * dt, diff));
-      w.x += Math.sin(w.angle) * speed * dt;
-      w.z += Math.cos(w.angle) * speed * dt;
-      // Keep walkers inside the city and near the streets.
-      if (Math.abs(w.x) > 205 || Math.abs(w.z) > 205 || w.z > 212) {
-        w.angle += Math.PI;
-        w.x = Math.max(-205, Math.min(205, w.x));
-        w.z = Math.max(-205, Math.min(212, w.z));
-      }
-      w.bob += dt * (scared ? 14 : 7);
-      w.group.position.set(w.x, Math.abs(Math.sin(w.bob)) * 0.05, w.z);
-      w.group.rotation.y = w.angle;
+      const c = city.clampToMap(ped.x, ped.z);
+      ped.x = c.x;
+      ped.z = c.z;
+      ped.sync();
     }
   }
 
-  /** The nearest walker within maxD of (x, z), or null. */
-  nearest(x, z, maxD) {
-    let best = null;
-    let bestD = maxD;
-    for (const w of this.walkers) {
-      if (w.down > 0) continue;
-      const d = dist2(x, z, w.x, w.z);
-      if (d < bestD) {
-        bestD = d;
-        best = w;
-      }
+  // A gunshot nearby sends the closest walkers running.
+  function scare(x, z, radius) {
+    for (const ped of peds) {
+      if (dist2(ped.x, ped.z, x, z) < radius) ped.fleeT = 2.5;
     }
-    return best;
   }
+
+  return { peds, update, scare };
 }

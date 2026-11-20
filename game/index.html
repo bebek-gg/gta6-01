@@ -6,172 +6,99 @@
 <link rel="icon" href="data:,">
 <title>SOLMAR — Open-World Crime Game</title>
 <style>
-  * { box-sizing: border-box; }
-  html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #0b1026; }
-  body { font-family: "Segoe UI", system-ui, sans-serif; color: #f2f2f2; }
-  #app, #app canvas { position: fixed; inset: 0; display: block; }
-  .panel {
-    position: fixed; z-index: 5; pointer-events: none;
-    background: rgba(10, 14, 22, 0.72); border: 1px solid rgba(255,255,255,0.14);
-    border-radius: 10px; padding: 8px 12px; backdrop-filter: blur(3px);
-  }
-  #stats { top: 12px; left: 12px; min-width: 190px; }
-  #cash { font-size: 26px; font-weight: 800; color: #ffd23a; letter-spacing: 0.5px; }
-  #rank { font-size: 12px; color: #9fb4c8; text-transform: uppercase; letter-spacing: 1.5px; }
-  #stars { font-size: 20px; color: #ffd23a; margin-top: 2px; letter-spacing: 2px; }
-  #stars.hot { color: #ff4d4d; text-shadow: 0 0 8px rgba(255,60,60,0.8); }
-  .bar { height: 7px; background: rgba(255,255,255,0.15); border-radius: 4px; margin-top: 5px; overflow: hidden; }
-  .bar > div { height: 100%; border-radius: 4px; }
-  #healthFill { width: 100%; background: #3aff7a; }
-  #armorFill { width: 0%; background: #5ab8ff; }
-  #radio { top: 12px; left: 50%; transform: translateX(-50%); text-align: center; }
-  #radioName { font-size: 15px; font-weight: 700; color: #ff4fd8; letter-spacing: 1px; }
-  #radioHint { font-size: 11px; color: #9fb4c8; }
-  #mission { top: 12px; right: 12px; width: 300px; }
-  #missionTitle { font-size: 16px; font-weight: 800; color: #ffd23a; }
-  #missionText { font-size: 13px; color: #d8dee8; margin-top: 3px; line-height: 1.35; }
-  #missionTimer { font-size: 20px; font-weight: 800; color: #ff9a3a; margin-top: 4px; }
-  #speed { bottom: 14px; right: 14px; font-size: 30px; font-weight: 800; text-align: right; line-height: 0.9; }
-  #speed small { font-size: 12px; font-weight: 400; color: #9fb4c8; display: block; margin-top: 3px; }
-  #minimapWrap { bottom: 14px; left: 12px; padding: 6px; }
-  #minimap { display: block; border-radius: 6px; }
-  #mapLabel { font-size: 11px; color: #9fb4c8; text-align: center; letter-spacing: 2px; margin-top: 3px; }
-  #prompt {
-    position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); z-index: 5;
-    font-size: 15px; font-weight: 600; color: #fff; text-shadow: 0 1px 4px #000;
-    pointer-events: none; white-space: nowrap;
-  }
-  #holdWrap {
-    display: none; position: fixed; bottom: 52px; left: 50%; transform: translateX(-50%);
-    width: 240px; height: 10px; background: rgba(255,255,255,0.18); border-radius: 5px;
-    overflow: hidden; z-index: 5; pointer-events: none;
-  }
-  #holdBar { height: 100%; width: 0%; background: #ff4fd8; }
-  #banner {
-    position: fixed; top: 22%; left: 50%; transform: translateX(-50%); z-index: 6;
-    text-align: center; opacity: 0; transition: opacity 0.4s; pointer-events: none;
-  }
-  #bannerTitle { font-size: 44px; font-weight: 900; color: #ffd23a; text-shadow: 0 2px 12px #000; letter-spacing: 2px; }
-  #bannerSub { font-size: 17px; color: #fff; text-shadow: 0 1px 6px #000; margin-top: 4px; }
-  #toast {
-    position: fixed; top: 34%; left: 50%; transform: translateX(-50%); z-index: 6;
-    font-size: 16px; font-weight: 600; color: #3affc8; text-shadow: 0 1px 5px #000;
-    opacity: 0; transition: opacity 0.3s; pointer-events: none; white-space: nowrap;
-  }
-  #crosshair {
-    display: none; position: fixed; left: 50%; top: 50%; width: 18px; height: 18px;
-    margin: -9px 0 0 -9px; z-index: 5; pointer-events: none;
-  }
-  #crosshair::before, #crosshair::after { content: ""; position: absolute; background: #fff; }
-  #crosshair::before { left: 8px; top: 0; width: 2px; height: 18px; }
-  #crosshair::after { top: 8px; left: 0; width: 18px; height: 2px; }
-  .overlay {
-    position: fixed; inset: 0; z-index: 10; display: none;
-    flex-direction: column; align-items: center; justify-content: center; text-align: center;
-    background: rgba(8, 10, 18, 0.78); backdrop-filter: blur(4px); padding: 24px;
-  }
-  .overlay h1 { font-size: 64px; font-weight: 900; letter-spacing: 8px; color: #ffd23a; margin: 0; text-shadow: 0 3px 18px rgba(0,0,0,0.9); }
-  .overlay h2 { font-size: 15px; font-weight: 600; letter-spacing: 3px; color: #ff4fd8; margin: 6px 0 18px; }
-  .overlay p { max-width: 560px; font-size: 16px; line-height: 1.5; color: #d8dee8; margin: 0 0 18px; }
-  .controls { font-size: 14px; line-height: 1.9; color: #b8c4d4; margin-bottom: 22px; }
-  .controls b { color: #fff; }
-  .bigbtn {
-    pointer-events: auto; font-size: 22px; font-weight: 800; letter-spacing: 2px;
-    color: #101418; background: #ffd23a; border: none; border-radius: 10px;
-    padding: 14px 44px; cursor: pointer; margin: 4px;
-  }
-  .bigbtn:hover { background: #ffe27a; }
-  .ghostbtn {
-    pointer-events: auto; font-size: 15px; font-weight: 600; color: #d8dee8;
-    background: transparent; border: 1px solid rgba(255,255,255,0.4); border-radius: 10px;
-    padding: 10px 26px; cursor: pointer; margin: 4px;
-  }
-  .ghostbtn:hover { border-color: #fff; color: #fff; }
-  #menuFoot { max-width: 560px; font-size: 12px; color: #8a94a6; margin-top: 20px; line-height: 1.5; }
-  #busted h1 { color: #ff4d4d; }
-  #shop { background: rgba(8, 10, 18, 0.88); }
-  #shopItems { display: flex; flex-direction: column; gap: 10px; width: 460px; max-width: 92vw; }
-  .shopbtn {
-    pointer-events: auto; display: grid; grid-template-columns: 1fr auto; gap: 2px 14px;
-    text-align: left; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.2);
-    border-radius: 10px; padding: 12px 16px; color: #fff; cursor: pointer; font-size: 16px;
-  }
-  .shopbtn:hover:not(:disabled) { background: rgba(255,255,255,0.14); }
-  .shopbtn:disabled { opacity: 0.45; cursor: default; }
-  .shopbtn .shopprice { color: #ffd23a; font-weight: 800; }
-  .shopbtn small { grid-column: 1 / -1; color: #9fb4c8; font-size: 12px; }
-  #shopCash { font-size: 18px; font-weight: 700; color: #ffd23a; margin-top: 16px; }
-  #shopHint { font-size: 13px; color: #9fb4c8; margin-top: 8px; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #101418; font-family: 'Segoe UI', Arial, sans-serif; color: #fff; }
+  #game { position: fixed; inset: 0; }
+  #game canvas { display: block; }
+  #hud { position: fixed; inset: 0; pointer-events: none; z-index: 10; }
+  #topbar { position: absolute; top: 14px; left: 16px; right: 16px; display: flex; justify-content: space-between; align-items: flex-start; }
+  #cash { font-size: 30px; font-weight: 800; color: #7dff8a; text-shadow: 2px 2px 0 #000; }
+  #stars { font-size: 30px; letter-spacing: 4px; color: #ffd23e; text-shadow: 2px 2px 0 #000; }
+  #bars { position: absolute; top: 60px; left: 16px; width: 210px; }
+  .bar { height: 12px; background: rgba(0,0,0,0.55); border: 1px solid #555; margin-bottom: 6px; }
+  .bar > div { height: 100%; }
+  #healthFill { width: 100%; background: #3ecb5a; }
+  #armorFill { width: 0%; background: #4a8aff; }
+  #missionBox { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); text-align: center; background: rgba(0,0,0,0.5); padding: 8px 18px; border-radius: 6px; }
+  #missionTitle { font-size: 18px; font-weight: 700; }
+  #missionObj { font-size: 13px; color: #ddd; margin-top: 2px; }
+  #missionTimer { font-size: 15px; color: #ffd23e; margin-top: 2px; }
+  #bottombar { position: absolute; bottom: 14px; left: 16px; right: 16px; display: flex; justify-content: space-between; align-items: flex-end; }
+  #station { font-size: 16px; background: rgba(0,0,0,0.5); padding: 6px 12px; border-radius: 6px; }
+  #speed { font-size: 26px; font-weight: 800; text-shadow: 2px 2px 0 #000; }
+  #rank { font-size: 14px; color: #ffd23e; text-shadow: 1px 1px 0 #000; margin-top: 4px; }
+  #minimap { position: absolute; bottom: 14px; right: 16px; width: 180px; height: 180px; border: 2px solid rgba(255,255,255,0.5); border-radius: 6px; background: #20242a; }
+  #notify { position: absolute; bottom: 210px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.7); padding: 10px 20px; border-radius: 6px; font-size: 17px; opacity: 0; transition: opacity 0.3s; }
+  #controls { position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%); font-size: 12px; color: #ccc; text-shadow: 1px 1px 0 #000; }
 </style>
 </head>
 <body>
-<div id="app"></div>
-
-<div id="stats" class="panel">
-  <div id="cash">$500</div>
-  <div id="rank">Wheelman</div>
-  <div id="stars">☆☆☆☆☆</div>
-  <div class="bar"><div id="healthFill"></div></div>
-  <div class="bar"><div id="armorFill"></div></div>
-</div>
-<div id="radio" class="panel" style="display:block">
-  <div id="radioName">SOLMAR FM</div>
-  <div id="radioHint">R — change station · M — mute</div>
-</div>
-<div id="mission" class="panel">
-  <div id="missionTitle">SOLMAR</div>
-  <div id="missionText">Steal a car and get to work.</div>
-  <div id="missionTimer"></div>
-</div>
-<div id="speed" class="panel">—<small>WASD drive · Space handbrake</small></div>
-<div id="minimapWrap" class="panel">
+<div id="game"></div>
+<div id="hud">
+  <div id="topbar">
+    <div id="cash">$500</div>
+    <div id="missionBox">
+      <div id="missionTitle">SOLMAR</div>
+      <div id="missionObj"></div>
+      <div id="missionTimer"></div>
+    </div>
+    <div id="stars"></div>
+  </div>
+  <div id="bars">
+    <div class="bar"><div id="healthFill"></div></div>
+    <div class="bar"><div id="armorFill"></div></div>
+  </div>
+  <div id="bottombar">
+    <div>
+      <div id="station">♪ SOLMAR FM</div>
+      <div id="rank">Street Punk</div>
+    </div>
+    <div id="speed"></div>
+  </div>
   <canvas id="minimap" width="180" height="180"></canvas>
-  <div id="mapLabel">SOLMAR</div>
+  <div id="notify"></div>
+  <div id="controls">WASD move/drive · E interact · R radio · Click to shoot · Shift run</div>
 </div>
-<div id="prompt"></div>
-<div id="holdWrap"><div id="holdBar"></div></div>
-<div id="banner"><div id="bannerTitle"></div><div id="bannerSub"></div></div>
-<div id="toast"></div>
-<div id="crosshair"></div>
 
+<style>
+  .overlay { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 20; background: rgba(8,10,14,0.72); text-align: center; }
+  #menu h1 { font-size: 64px; letter-spacing: 10px; color: #ffd23e; text-shadow: 4px 4px 0 #000; }
+  #menu p { font-size: 17px; color: #e8e8e8; max-width: 560px; margin: 14px 0 26px; line-height: 1.5; }
+  #btnStart { pointer-events: auto; font-size: 22px; font-weight: 800; padding: 14px 44px; background: #ffd23e; color: #111; border: none; border-radius: 8px; cursor: pointer; }
+  #btnStart:hover { background: #ffe36a; }
+  #shop { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 20; background: rgba(10,12,16,0.92); border: 2px solid #ffd23e; border-radius: 10px; padding: 22px 26px; display: none; min-width: 340px; }
+  #shop h2 { font-size: 22px; color: #ffd23e; margin-bottom: 4px; }
+  #shop p { font-size: 13px; color: #ccc; margin-bottom: 14px; }
+  #shopItems { display: flex; flex-direction: column; gap: 8px; }
+  .shopbtn { pointer-events: auto; font-size: 16px; text-align: left; padding: 10px 14px; background: #22262e; color: #fff; border: 1px solid #555; border-radius: 6px; cursor: pointer; }
+  .shopbtn:hover { background: #333945; border-color: #ffd23e; }
+  #busted, #wasted { display: none; }
+  #busted h1, #wasted h1 { font-size: 56px; letter-spacing: 8px; color: #ff4a4a; text-shadow: 4px 4px 0 #000; }
+  #busted div, #wasted div { font-size: 18px; margin-top: 10px; }
+</style>
 <div id="menu" class="overlay">
   <h1>SOLMAR</h1>
-  <h2>AN OPEN-WORLD CRIME GAME</h2>
-  <p>Milo Reyes is a wheelman with a debt to Cleo Vane, and Solmar is a city
-  that pays in cash and collects in blood. Steal cars, run her twelve jobs,
-  dodge the PD, and climb from Wheelman to Kingpin of Solmar.</p>
-  <div class="controls">
-    <b>WASD</b> move / drive &nbsp;·&nbsp; <b>Shift</b> sprint &nbsp;·&nbsp; <b>Space</b> jump / handbrake<br>
-    <b>E</b> steal a car · work a job · shop &nbsp;·&nbsp; <b>F</b> punch &nbsp;·&nbsp; <b>Click</b> shoot<br>
-    <b>R</b> radio &nbsp;·&nbsp; <b>P</b> pause &nbsp;·&nbsp; <b>M</b> mute &nbsp;·&nbsp; <b>C</b> reset camera &nbsp;·&nbsp; drag mouse to look
+  <p>Milo Reyes works jobs for Cleo Vane in the coastal city of Solmar. Steal any car, outrun the PD, run twelve story jobs — and don't get busted.</p>
+  <button id="btnStart">START</button>
+</div>
+<div id="shop">
+  <h2>Marina Mart</h2>
+  <p>Press E or click outside to leave. Cash is shown top-left.</p>
+  <div id="shopItems">
+    <button class="shopbtn" data-item="repair">Repair car — $200</button>
+    <button class="shopbtn" data-item="armor">Body armour — $300</button>
+    <button class="shopbtn" data-item="ammo">Ammo (30 rounds) — $120</button>
+    <button class="shopbtn" data-item="comet">Comet GT — $1,500</button>
   </div>
-  <button id="btnStart" class="bigbtn">Start</button>
-  <button id="btnReset" class="ghostbtn" style="display:none">New game</button>
-  <div id="menuFoot">SOLMAR is an original game: its city, characters, vehicles, story, art,
-  sounds and music are all our own. No Rockstar Games name, logo, character, map or asset appears here.
-  Progress saves in this browser.</div>
 </div>
-
-<div id="pauseMenu" class="overlay">
-  <h1>PAUSED</h1>
-  <h2>SOLMAR WAITS FOR NO ONE — EXCEPT NOW</h2>
-  <button id="btnResume" class="bigbtn">Resume</button>
-  <button id="btnQuit" class="ghostbtn">Quit to menu</button>
-</div>
-
 <div id="busted" class="overlay">
   <h1>BUSTED</h1>
-  <h2 id="bustedText"></h2>
+  <div>BUSTED — bail $200</div>
 </div>
-
-<div id="shop" class="overlay">
-  <h1>MARINA MART</h1>
-  <h2>REPAIRS · ARMOUR · AMMO · CARS</h2>
-  <div id="shopItems"></div>
-  <div id="shopCash"></div>
-  <div id="shopHint">E — close the shop</div>
+<div id="wasted" class="overlay">
+  <h1>WASTED</h1>
+  <div>The clinic patched you up.</div>
 </div>
-
 <script type="importmap">
 { "imports": { "three": "./vendor/three.module.min.js" } }
 </script>

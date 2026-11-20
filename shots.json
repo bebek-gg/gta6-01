@@ -1,1 +1,1 @@
-[{"name":"1-heli.jpg","query":"?shot=heli"},{"name":"2-shop.jpg","query":"?shot=shop"},{"name":"3-heist.jpg","query":"?shot=heist"},{"name":"4-radio.jpg","query":"?shot=radio"}]
+{"shots":[{"name":"1-heli","url":"/?shot=heli"},{"name":"2-shop","url":"/?shot=shop"},{"name":"3-heist","url":"/?shot=heist"},{"name":"4-radio","url":"/?shot=radio"}]}

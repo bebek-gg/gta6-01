@@ -1,371 +1,232 @@
-// missions.js — Cleo Vane's twelve jobs: what each one asks, where it
-// points, how long it allows, and what it pays. Plus the chop-shop fares.
+// missions.js — the twelve story jobs for Cleo Vane, plus the repeatable
+// chop-shop. Each job is data (title, payout, timer, kind) and a small state
+// machine the game ticks every frame.
+import { clamp, dist2, pick } from './utils.js';
 
-import { pick, rand } from './utils.js';
-import { ROADS } from './city.js';
-
-/** The story, in order. time is the countdown in seconds, 0 means untimed. */
-export const JOBS = [
-  {
-    title: 'First Wheels', reward: 400, time: 0,
-    brief: 'Cleo needs a driver with wheels. Steal any car and get moving.',
-  },
-  {
-    title: 'Running Late', reward: 600, time: 150,
-    brief: 'A package has to cross town before the clock runs out. Drive fast.',
-  },
-  {
-    title: 'The Shakedown', reward: 800, time: 0,
-    brief: 'A shopkeeper on the Strip owes Cleo. Hold E at his door until he pays up.',
-  },
-  {
-    title: 'Hot Pursuit', reward: 900, time: 0,
-    brief: 'The PD is on you. Lose them, then reach the far corner in one piece.',
-  },
-  {
-    title: 'The Big Score', reward: 1200, time: 0,
-    brief: 'Crack the Solmar Bank vault, then get the cash to the docks.',
-  },
-  {
-    title: 'Neon Grand Prix', reward: 1000, time: 180,
-    brief: 'Three checkpoints, one street race, no rules. Beat the clock.',
-  },
-  {
-    title: 'Three Drops', reward: 900, time: 240,
-    brief: 'Three packages, three corners of the city. Do not keep Cleo waiting.',
-  },
-  {
-    title: 'The Bodyguard', reward: 1100, time: 0,
-    brief: 'Pick up Cleo\u2019s client on the Strip and bring them to the docks, alive.',
-  },
-  {
-    title: 'The Marina Heist', reward: 2000, time: 0,
-    brief: 'Crack the warehouse, crack the vault, then vanish at the docks.',
-  },
-  {
-    title: 'Quiet Night', reward: 1500, time: 0,
-    brief: 'Slip across town without the PD ever seeing you. One star and it is over.',
-  },
-  {
-    title: 'Night Shift', reward: 600, time: 0,
-    brief: 'Drive the cab. Every fare pays $250 — three fares and the night is yours.',
-  },
-  {
-    title: 'The Getaway', reward: 1400, time: 0,
-    brief: 'Four stars and the whole city hunting you. Lose the heat, reach the beach house.',
-  },
+export const MISSION_DEFS = [
+  { title: 'First Wheels', payout: 300, timer: 120, kind: 'steal', desc: 'Steal a car and bring it to Cleo.' },
+  { title: 'Sunfield Shuffle', payout: 400, timer: 150, kind: 'goto', target: [-200, -200], desc: 'Drop a package in Sunfield.' },
+  { title: 'Coastal Cruise', payout: 500, timer: 180, kind: 'goto', target: [200, -40], desc: 'Cruise the beachfront and check in.' },
+  { title: 'Downtown Dash', payout: 600, timer: 200, kind: 'goto', target: [40, 40], desc: 'Beat the clock across Downtown.' },
+  { title: 'Marina Meet', payout: 700, timer: 240, kind: 'goto', target: [200, 120], desc: 'Meet the contact at the marina.' },
+  { title: 'Neon Grand Prix', payout: 800, timer: 180, kind: 'grandprix', points: [[120, -120], [-120, 120], [0, -200]], desc: 'Three checkpoints, one fast car.' },
+  { title: 'Three Drops', payout: 900, timer: 240, kind: 'drops', points: [[-160, 160], [160, -160], [0, 200]], desc: 'Three packages, three corners of Solmar.' },
+  { title: 'The Bodyguard', payout: 1100, timer: 0, kind: 'bodyguard', points: [[80, -80], [-160, -160]], desc: 'Pick the client up, bring them home safe.' },
+  { title: 'The Marina Heist', payout: 2000, timer: 0, kind: 'heist', points: [[120, 80], [160, 40], [200, 160]], desc: 'Crack the warehouse, crack the vault, reach the docks.' },
+  { title: 'Quiet Night', payout: 1500, timer: 0, kind: 'quiet', target: [-200, 200], desc: 'One drop, no police. Stay invisible.' },
+  { title: 'Night Shift', payout: 600, timer: 0, kind: 'taxi', desc: 'Drive fares. $250 a drop, $600 for the shift.' },
+  { title: 'The Getaway', payout: 1400, timer: 0, kind: 'getaway', target: [-120, 222], desc: 'Four stars. Lose them, then reach the north edge.' },
 ];
 
-/** A point on a road, for fares and drop-offs that move around. */
-function roadPoint() {
-  const road = pick(ROADS);
-  const along = rand(-190, 190);
-  const off = pick([-1, 1]) * 2.6;
-  return Math.random() < 0.5
-    ? { x: road + off, z: along }
-    : { x: along, z: road + off };
-}
+export function createMissions(G) {
+  const list = MISSION_DEFS.map((d) => ({ title: d.title, payout: d.payout, timer: d.timer, desc: d.desc }));
+  let active = null;
+  let index = 0;
+  let storyDone = false;
 
-/** Two road points a good drive apart. */
-function farePair() {
-  const a = roadPoint();
-  let b = roadPoint();
-  let guard = 0;
-  while (Math.hypot(b.x - a.x, b.z - a.z) < 80 && guard < 20) {
-    b = roadPoint();
-    guard += 1;
-  }
-  return [a, b];
-}
-
-export class Missions {
-  constructor(game) {
-    this.game = game;
-    this.list = JOBS;
-    this.index = 0;
-    this.active = null;
-    this.storyDone = false;
-    this.pendingNext = null;
-    this.pendingAt = 0;
-  }
-
-  /** The current stage of the active job, or 0 when none is running. */
-  get stage() {
-    return this.active ? this.active.stage : 0;
-  }
-
-  /** The countdown of the active job, rounded up, or 0 when untimed. */
-  get timer() {
-    return this.active ? Math.ceil(this.active.timer) : 0;
-  }
-
-  /** Start job i: fresh stage, fresh timer, fresh fares. */
-  start(i) {
-    const def = JOBS[i];
-    if (!def) return;
-    this.pendingNext = null;
-    this.index = i;
-    const job = {
+  function start(i) {
+    const def = MISSION_DEFS[i];
+    if (!def) return null;
+    active = {
+      i,
       def,
       title: def.title,
-      index: i,
       stage: 0,
-      timer: def.time,
+      timer: def.timer,
       fare: 0,
       fareStage: 0,
-      work: 0,
-      targets: this.planTargets(i),
-      targetIdx: 0,
+      acc: 0,
+      crack: 0,
       pickup: null,
       dropoff: null,
     };
-    if (i === 10) {
-      const [a, b] = farePair();
-      job.pickup = a;
-      job.dropoff = b;
+    if (def.kind === 'taxi') {
+      const p = G.city.randomRoadPoint();
+      const d = G.city.randomRoadPoint();
+      active.pickup = { x: p.x, z: p.z };
+      active.dropoff = { x: d.x, z: d.z };
     }
-    this.active = job;
-    const g = this.game;
-    if (i === 3) g.police.addHeat(300, 'Hot Pursuit');
-    if (i === 11) g.police.addHeat(800, 'The Getaway');
-    g.hud.setJob(def.title, def.brief);
-    g.hud.showBanner(def.title, def.brief);
-    g.audio.blip(660);
+    if (def.kind === 'getaway') {
+      G.police.addHeat(700, 'getaway');
+    }
+    if (G.hud) G.hud.notify('Job: ' + def.title + ' — ' + def.desc);
+    return active;
   }
 
-  /** The fixed waypoints of a job; the taxi and the first job are dynamic. */
-  planTargets(i) {
-    const L = this.game.city.landmarks;
-    switch (i) {
-      case 1: return [{ x: 180, z: -180 }];
-      case 2: return [{ x: -60, z: 60 }];
-      case 3: return [{ x: -180, z: -180 }];
-      case 4: return [{ x: L.bank.x, z: L.bank.z }, { x: L.docks.x, z: L.docks.z }];
-      case 5: return [{ x: 180, z: 180 }, { x: -180, z: 180 }, { x: -180, z: -180 }];
-      case 6: return [{ x: 150, z: -150 }, { x: -150, z: -30 }, { x: 30, z: 180 }];
-      case 7: return [{ x: 0, z: -60 }, { x: L.docks.x, z: L.docks.z }];
-      case 8: return [
-        { x: L.warehouse.x, z: L.warehouse.z },
-        { x: L.bank.x, z: L.bank.z },
-        { x: L.docks.x, z: L.docks.z },
-      ];
-      case 9: return [{ x: -180, z: -180 }];
-      case 11: return [{ x: -120, z: 222 }];
-      default: return [];
-    }
-  }
-
-  /** Where the marker points right now, or null when no job is running. */
-  target() {
-    const job = this.active;
-    if (!job) return null;
-    const g = this.game;
-    if (job.index === 0) {
-      // First Wheels: the nearest parked car.
-      let best = null;
-      let bestD = Infinity;
-      for (const car of g.traffic.parked) {
-        const d = Math.hypot(car.x - g.player.x, car.z - g.player.z);
-        if (d < bestD) {
-          bestD = d;
-          best = car;
-        }
+  function target() {
+    if (!active) return null;
+    const def = active.def;
+    switch (def.kind) {
+      case 'steal': {
+        const car = G.world.traffic.nearestParked(G.world.playerX, G.world.playerZ, 400);
+        return car ? { x: car.x, z: car.z } : { x: 0, z: 0 };
       }
-      return best ? { x: best.x, z: best.z } : { x: 0, z: 150 };
+      case 'goto':
+      case 'quiet':
+      case 'getaway':
+        return { x: def.target[0], z: def.target[1] };
+      case 'grandprix':
+      case 'drops':
+      case 'bodyguard':
+      case 'heist': {
+        const p = def.points[Math.min(active.stage, def.points.length - 1)];
+        return { x: p[0], z: p[1] };
+      }
+      case 'taxi':
+        return active.fareStage === 0 ? active.pickup : active.dropoff;
+      default:
+        return null;
     }
-    if (job.index === 10) {
-      return job.fareStage === 0 ? job.pickup : job.dropoff;
-    }
-    // The bank job, the courier run and the heist walk their waypoints by
-    // stage; the race and the escort walk theirs by target index.
-    if (job.index === 4 || job.index === 6 || job.index === 8) {
-      return job.targets[Math.min(job.stage, job.targets.length - 1)] || null;
-    }
-    return job.targets[job.targetIdx] || job.targets[job.targets.length - 1] || null;
   }
 
-  /**
-   * The hold-to-work spot for the active job, if its current stage is one:
-   * {x, z, secs}. Null when the job advances by arriving instead.
-   */
-  holdTarget() {
-    const job = this.active;
-    if (!job) return null;
-    const at = (i, secs) => {
-      const p = job.targets[i];
-      return p ? { x: p.x, z: p.z, secs } : null;
-    };
-    if (job.index === 2 && job.stage === 0) return at(0, 2);
-    if (job.index === 4 && job.stage === 0) return at(0, 2.5);
-    if (job.index === 8 && job.stage === 0) return at(0, 2.5);
-    if (job.index === 8 && job.stage === 1) return at(1, 3);
-    return null;
+
+  function complete() {
+    if (!active) return;
+    const def = active.def;
+    const done = active.i;
+    G.world.cash += def.payout;
+    G.totalEarned = (G.totalEarned || 0) + def.payout;
+    index = Math.max(index, done + 1);
+    if (done === MISSION_DEFS.length - 1) storyDone = true;
+    if (G.hud) G.hud.notify('Job done: ' + def.title + ' +$' + def.payout + '.');
+    if (G.audio) G.audio.jobDone();
+    active = null;
+    if (G.save) G.save.saveGame();
   }
 
-  /** A hold stage finished: what cracking that spot earns or unlocks. */
-  advanceHold(job) {
-    const g = this.game;
-    if (job.index === 2) {
-      g.police.addHeat(60, 'The Shakedown');
-      this.complete();
-    } else if (job.index === 4) {
-      job.stage = 1;
-      g.police.addHeat(250, 'The Big Score');
-      g.hud.toast('Vault cracked — get the cash to the docks');
-      g.audio.blip(880);
-    } else if (job.index === 8) {
-      if (job.stage === 0) {
-        job.stage = 1;
-        g.hud.toast('Warehouse cracked — now the vault');
-        g.audio.blip(880);
-      } else if (job.stage === 1) {
-        job.stage = 2;
-        g.police.addHeat(750, 'The Marina Heist');
-        g.hud.toast('Vault cracked — the PD is coming. Run for the docks');
-        g.audio.sirenBlip();
+  function fail(reason) {
+    if (!active) return;
+    if (G.hud) G.hud.notify('Job failed: ' + active.title + (reason ? ' — ' + reason : ''));
+    active = null;
+  }
+
+  function update(_dt, rawDt) {
+    if (!active) return;
+    const def = active.def;
+    // Whole-second countdown, so the timer reads its starting value at once.
+    if (def.timer > 0) {
+      active.acc += rawDt;
+      if (active.acc >= 1) {
+        active.acc -= 1;
+        active.timer -= 1;
+        if (active.timer <= 0) { fail('Out of time.'); return; }
       }
     }
-  }
-
-  /** One frame of the active job: timers, arrivals, holds, fares, escapes. */
-  step(dt) {
-    // The next job starts itself a few seconds after the last one ends,
-    // but only if the player has not taken another job in the meantime.
-    if (!this.active && this.pendingNext != null && this.game.time >= this.pendingAt) {
-      const n = this.pendingNext;
-      this.pendingNext = null;
-      if (n < 12 && !this.storyDone) this.start(n);
-    }
-    const job = this.active;
-    if (!job) return;
-    const g = this.game;
-    if (job.timer > 0) {
-      job.timer -= dt;
-      if (job.timer <= 0) {
-        job.timer = 0;
-        this.fail('Out of time');
-        return;
-      }
-    }
-    const px = g.player.x;
-    const pz = g.player.z;
-    const near = (t, r = 8) => !!t && Math.hypot(px - t.x, pz - t.z) < r;
-    const hold = this.holdTarget();
-    if (hold) {
-      if (near(hold) && g.eHeld) {
-        job.work += dt;
-        g.hud.setHold(job.work / hold.secs);
-        if (job.work >= hold.secs) {
-          job.work = 0;
-          g.hud.setHold(0);
-          this.advanceHold(job);
-        }
-      } else {
-        if (job.work > 0) job.work = 0;
-        g.hud.setHold(0);
-      }
-      return;
-    }
-    g.hud.setHold(0);
-    switch (job.index) {
-      case 0:
-        if (g.inCar) this.complete();
+    // Quiet Night fails the moment the police notice Milo.
+    if (def.kind === 'quiet' && G.police.stars > 0) { fail('Spotted.'); return; }
+    const px = G.world.playerX;
+    const pz = G.world.playerZ;
+    const t = target();
+    switch (def.kind) {
+      case 'steal':
+        if (G.world.inCar) complete();
         break;
-      case 1:
-      case 3:
-        if (near(this.target())) this.complete();
+      case 'goto':
+      case 'quiet':
+        if (t && dist2(px, pz, t.x, t.z) < 12) complete();
         break;
-      case 4:
-        if (job.stage === 1 && near(this.target())) this.complete();
-        break;
-      case 8:
-        if (job.stage === 2 && near(this.target())) this.complete();
-        break;
-      case 5:
-      case 6:
-      case 7: {
-        const t = this.target();
-        if (!near(t)) break;
-        if (job.index === 5) {
-          job.targetIdx += 1;
-          if (job.targetIdx >= job.targets.length) this.complete();
-          else g.hud.toast(`Checkpoint ${job.targetIdx + 1} of 3`);
-        } else if (job.index === 6) {
-          job.stage += 1;
-          if (job.stage >= 3) this.complete();
-          else g.hud.toast(`Drop ${job.stage + 1} of 3`);
-        } else {
-          job.targetIdx += 1;
-          if (job.targetIdx >= job.targets.length) this.complete();
-          else g.hud.toast('Client aboard — get them to the docks');
+      case 'grandprix':
+      case 'drops':
+      case 'bodyguard':
+        if (t && dist2(px, pz, t.x, t.z) < 14) {
+          active.stage += 1;
+          if (active.stage >= def.points.length) complete();
         }
         break;
-      }
-      case 9:
-        if (g.police.stars > 0) this.fail('Spotted by the PD');
-        else if (near(this.target())) this.complete();
+      case 'heist':
+        // Stages 0 and 1 advance by holding E (holdE); the docks finish it.
+        if (active.stage === 2 && t && dist2(px, pz, t.x, t.z) < 12) complete();
         break;
-      case 10: {
-        if (job.fareStage === 0 && near(job.pickup)) {
-          job.fareStage = 1;
-          g.hud.toast('Passenger aboard — take them to the marker');
-          g.audio.blip(760);
-        } else if (job.fareStage === 1 && near(job.dropoff)) {
-          job.fare += 1;
-          g.addCash(250, 'Fare paid: +$250');
-          g.audio.chaChing();
-          if (job.fare >= 3) {
-            this.complete();
-            break;
+      case 'taxi':
+        if (!t) break;
+        if (dist2(px, pz, t.x, t.z) < 12) {
+          if (active.fareStage === 0) {
+            active.fareStage = 1;
+            if (G.hud) G.hud.notify('Passenger aboard. Drop them off.');
+          } else {
+            active.fare += 1;
+            G.world.cash += 250;
+            if (G.hud) G.hud.notify('Fare paid: +$250.');
+            if (active.fare >= 2) {
+              complete();
+            } else {
+              const p = G.city.randomRoadPoint();
+              const d = G.city.randomRoadPoint();
+              active.pickup = { x: p.x, z: p.z };
+              active.dropoff = { x: d.x, z: d.z };
+              active.fareStage = 0;
+            }
           }
-          job.fareStage = 0;
-          const [a, b] = farePair();
-          job.pickup = a;
-          job.dropoff = b;
-          g.hud.toast(`Fare ${job.fare} of 3 done — next pickup marked`);
         }
         break;
-      }
-      case 11:
-        if (g.police.heat <= 0 && near(this.target(), 8)) this.complete();
+      case 'getaway':
+        if (G.police.heat <= 0 && t && dist2(px, pz, t.x, t.z) < 15) complete();
         break;
       default:
         break;
     }
   }
 
-  /** A job done: pay out, advance the story, queue the next job. */
-  complete() {
-    const job = this.active;
-    if (!job) return;
-    this.active = null;
-    this.index = job.index + 1;
-    const g = this.game;
-    g.addCash(job.def.reward, `${job.title} complete: +$${job.def.reward.toLocaleString('en-US')}`);
-    g.audio.win();
-    g.hud.showBanner(job.title, 'Job complete');
-    g.hud.setJob('SOLMAR', 'Job done — the next one is coming.');
-    g.saveProgress();
-    if (this.index >= 12) {
-      this.storyDone = true;
-      g.hud.showBanner('KINGPIN OF SOLMAR', 'Every job done. The city is yours.');
-    } else {
-      this.pendingNext = this.index;
-      this.pendingAt = g.time + 4;
+  // Hold E near a heist target to crack it. Called every frame while E is down.
+  function holdE(dt) {
+    if (!active || active.def.kind !== 'heist') return false;
+    if (active.stage >= 2) return false;
+    const t = target();
+    if (!t) return false;
+    if (dist2(G.world.playerX, G.world.playerZ, t.x, t.z) > 10) {
+      active.crack = 0;
+      return false;
     }
+    active.crack += dt / 1.5;
+    if (active.crack >= 1) {
+      active.crack = 0;
+      active.stage += 1;
+      if (active.stage === 2) {
+        G.police.addHeat(650, 'heist');
+        if (G.hud) G.hud.notify('Vault cracked. The PD is coming.');
+      } else {
+        if (G.hud) G.hud.notify('Warehouse cracked. Now the vault.');
+      }
+      return true;
+    }
+    return false;
   }
 
-  /** A job blown: no pay, no progress — the same job comes back around. */
-  fail(reason) {
-    const job = this.active;
-    if (!job) return;
-    this.active = null;
-    const g = this.game;
-    g.audio.lose();
-    g.hud.showBanner('JOB FAILED', reason);
-    g.hud.setJob(job.title, `Job failed — ${reason}`);
-    g.hud.setHold(0);
-    this.pendingNext = job.index;
-    this.pendingAt = g.time + 4;
+  // Chop-shop: sell the car Milo is driving for cash, on foot afterwards.
+  function chopshop() {
+    const car = G.world.playerCar;
+    if (!G.world.inCar || !car) return false;
+    const chop = G.city.points.chopshop;
+    if (dist2(G.world.playerX, G.world.playerZ, chop.x, chop.z) > 10) return false;
+    const value = 250 + Math.round(car.top * 4);
+    G.world.cash += value;
+    G.world.inCar = false;
+    G.world.playerCar = null;
+    G.player.setPosition(chop.x - 4, chop.z, 0);
+    car.dispose();
+    if (G.hud) G.hud.notify('Chop-shop paid $' + value + ' for the ' + car.name + '.');
+    if (G.save) G.save.saveGame();
+    return true;
   }
+
+  return {
+    list,
+    get active() { return active; },
+    set active(v) { active = v; },
+    // The playtest reads the running job's stage and timer off the missions
+    // object itself, so expose them as live getters over the active job.
+    get stage() { return active ? active.stage : 0; },
+    get timer() { return active ? active.timer : 0; },
+    get index() { return index; },
+    set index(v) { index = v; },
+    get storyDone() { return storyDone; },
+    set storyDone(v) { storyDone = v; },
+    start,
+    target,
+    update,
+    holdE,
+    chopshop,
+    complete,
+    fail,
+  };
 }

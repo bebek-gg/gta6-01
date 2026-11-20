@@ -1,198 +1,198 @@
-// hud.js — everything on top of the 3D view: cash, rank, wanted stars,
-// health and armour, speed, radio, the mission panel, the minimap, banners
-// and the menus.
+// hud.js — the heads-up display: cash, stars, health, armour, the mission
+// card, the radio, the minimap, the menu, the shop panel and the toasts.
+// All of it is DOM over the canvas; the game only ever calls these methods.
+import { formatCash, starsText, fmtTime } from './utils.js';
 
-import { rankName } from './save.js';
-import { cashText, clamp, clockText } from './utils.js';
+const RANKS = [
+  { at: 0, name: 'Street Punk' },
+  { at: 1500, name: 'Hustler' },
+  { at: 4000, name: 'Wheelman' },
+  { at: 8000, name: 'Kingpin' },
+  { at: 14000, name: 'Don of Solmar' },
+];
 
-export class Hud {
-  constructor(game) {
-    this.game = game;
-    const $ = (id) => document.getElementById(id);
-    this.cashEl = $('cash');
-    this.rankEl = $('rank');
-    this.starsEl = $('stars');
-    this.speedEl = $('speed');
-    this.radioEl = $('radio');
-    this.radioNameEl = $('radioName');
-    this.missionTitleEl = $('missionTitle');
-    this.missionTextEl = $('missionText');
-    this.missionTimerEl = $('missionTimer');
-    this.promptEl = $('prompt');
-    this.holdWrapEl = $('holdWrap');
-    this.holdBarEl = $('holdBar');
-    this.bannerEl = $('banner');
-    this.bannerTitleEl = $('bannerTitle');
-    this.bannerSubEl = $('bannerSub');
-    this.toastEl = $('toast');
-    this.menuEl = $('menu');
-    this.pauseEl = $('pauseMenu');
-    this.bustedEl = $('busted');
-    this.bustedTextEl = $('bustedText');
-    this.healthEl = $('healthFill');
-    this.armorEl = $('armorFill');
-    this.crossEl = $('crosshair');
-    this.mapEl = $('minimap');
-    this.mapCtx = this.mapEl.getContext('2d');
-    this.bannerTimer = null;
-    this.toastTimer = null;
+export function rankFor(earned) {
+  let r = RANKS[0].name;
+  for (const row of RANKS) if (earned >= row.at) r = row.name;
+  return r;
+}
+
+export function createHud(G) {
+  const $ = (id) => document.getElementById(id);
+  const el = {
+    cash: $('cash'),
+    stars: $('stars'),
+    health: $('healthFill'),
+    armor: $('armorFill'),
+    mission: $('missionTitle'),
+    objective: $('missionObj'),
+    timer: $('missionTimer'),
+    speed: $('speed'),
+    station: $('station'),
+    rank: $('rank'),
+    toast: $('notify'),
+    map: $('minimap'),
+    menu: $('menu'),
+    shop: $('shop'),
+    busted: $('busted'),
+    wasted: $('wasted'),
+  };
+  const mapCtx = el.map ? el.map.getContext('2d') : null;
+  let toastT = 0;
+
+  function notify(text) {
+    if (!el.toast) return;
+    el.toast.textContent = text;
+    el.toast.style.opacity = '1';
+    toastT = 3.2;
   }
 
-  refresh() {
-    const g = this.game;
-    this.cashEl.textContent = cashText(g.cash);
-    this.rankEl.textContent = rankName(g.totalEarned);
-    const stars = g.police.level;
-    this.starsEl.textContent = '★'.repeat(stars) + '☆'.repeat(5 - stars);
-    this.starsEl.classList.toggle('hot', stars >= 3);
-    const speed = g.inCar && g.playerCar ? Math.abs(g.playerCar.speed) : g.player.speed;
-    this.speedEl.innerHTML = `${Math.round(speed * 2.2)}<small> mph</small>`;
-    this.radioNameEl.textContent = g.audio.stationName;
-    this.radioEl.style.display = 'block';
-    this.healthEl.style.width = `${clamp(g.player.health, 0, 100)}%`;
-    this.armorEl.style.width = `${clamp(g.player.armor, 0, 100)}%`;
-    this.crossEl.style.display = g.player.armed && g.state === 'playing' ? 'block' : 'none';
-    const a = g.missions.active;
-    this.missionTimerEl.textContent = a && a.timer > 0 ? clockText(a.timer) : '';
-    this.drawMap();
+  function showShop(open) {
+    if (el.shop) el.shop.style.display = open ? 'block' : 'none';
   }
 
-  setJob(title, text) {
-    this.missionTitleEl.textContent = title;
-    this.missionTextEl.textContent = text;
+  function showMenu(show) {
+    if (el.menu) el.menu.style.display = show ? 'flex' : 'none';
   }
 
-  setHint(text) {
-    if (this.promptEl.textContent !== text) this.promptEl.textContent = text;
-  }
-
-  setHold(frac) {
-    if (frac > 0) {
-      this.holdWrapEl.style.display = 'block';
-      this.holdBarEl.style.width = `${clamp(frac, 0, 1) * 100}%`;
-    } else {
-      this.holdWrapEl.style.display = 'none';
+  function showBusted(show, bail) {
+    if (!el.busted) return;
+    el.busted.style.display = show ? 'flex' : 'none';
+    if (show && bail != null) {
+      const t = el.busted.querySelector('div');
+      if (t) t.textContent = 'BUSTED — bail $' + bail;
     }
   }
 
-  /** The live top-down map: roads, sea, landmarks, the objective, units. */
-  drawMap() {
-    const g = this.game;
-    const ctx = this.mapCtx;
-    const S = 180 / 520;
-    const X = (x) => 90 + x * S;
-    const Z = (z) => 90 + z * S;
-    ctx.clearRect(0, 0, 180, 180);
-    ctx.fillStyle = '#10151c';
-    ctx.fillRect(0, 0, 180, 180);
-    // Sea and sand along the bottom.
-    ctx.fillStyle = '#1f6f9e';
-    ctx.fillRect(0, Z(258), 180, 180 - Z(258));
-    ctx.fillStyle = '#e0c98f';
-    ctx.fillRect(0, Z(215), 180, Z(258) - Z(215));
+  function showWasted(show) {
+    if (el.wasted) el.wasted.style.display = show ? 'flex' : 'none';
+  }
+
+  // Wire the shop buttons to the shop system. The button order in the panel
+  // is repair, armour, ammo, Comet GT.
+  const shopBtns = document.querySelectorAll('.shopbtn');
+  shopBtns.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      if (G.shops) G.shops.buy(btn.dataset.item);
+    });
+  });
+
+  // Wire the start button. The game itself starts from main.js.
+  const startBtn = $('btnStart');
+  if (startBtn) {
+    startBtn.addEventListener('click', () => {
+      if (G.onStart) G.onStart();
+    });
+  }
+
+
+  function drawMinimap() {
+    if (!mapCtx || !el.map) return;
+    const W = el.map.width;
+    const H = el.map.height;
+    const sx = (x) => ((x + 260) / 520) * W;
+    const sz = (z) => ((z + 260) / 520) * H;
+    mapCtx.fillStyle = '#20242a';
+    mapCtx.fillRect(0, 0, W, H);
+    // Ocean and beach on the east edge.
+    mapCtx.fillStyle = '#1e6f9e';
+    mapCtx.fillRect(sx(235), 0, W - sx(235), H);
+    mapCtx.fillStyle = '#e8d8a0';
+    mapCtx.fillRect(sx(208), 0, sx(235) - sx(208), H);
     // Roads.
-    ctx.strokeStyle = '#3a3f46';
-    ctx.lineWidth = 3;
-    for (const r of [-180, -120, -60, 0, 60, 120, 180]) {
-      ctx.beginPath();
-      ctx.moveTo(X(r), Z(-210));
-      ctx.lineTo(X(r), Z(210));
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(X(-210), Z(r));
-      ctx.lineTo(X(210), Z(r));
-      ctx.stroke();
+    mapCtx.strokeStyle = '#5a5a60';
+    mapCtx.lineWidth = 2;
+    for (let v = -240; v <= 240; v += 40) {
+      mapCtx.beginPath();
+      mapCtx.moveTo(sx(v), 0);
+      mapCtx.lineTo(sx(v), H);
+      mapCtx.stroke();
+      mapCtx.beginPath();
+      mapCtx.moveTo(0, sz(v));
+      mapCtx.lineTo(W, sz(v));
+      mapCtx.stroke();
     }
-    // Landmarks.
-    const lmColors = { mart: '#ffd23a', bank: '#5ab8ff', warehouse: '#ff9a3a', safehouse: '#3affc8', loft: '#ff4fd8', docks: '#e8e4da', chopShop: '#3affc8', pdhq: '#5ab8ff' };
-    for (const [name, lm] of Object.entries(g.city.landmarks)) {
-      ctx.fillStyle = lmColors[name] || '#e8e4da';
-      ctx.fillRect(X(lm.x) - 2, Z(lm.z) - 2, 4, 4);
+    // Points of interest.
+    const pois = G.city ? G.city.points : null;
+    if (pois) {
+      mapCtx.fillStyle = '#ffd23e';
+      for (const k of ['mart', 'safehouse', 'loft', 'chopshop']) {
+        const p = pois[k];
+        mapCtx.beginPath();
+        mapCtx.arc(sx(p.x), sz(p.z), 3, 0, Math.PI * 2);
+        mapCtx.fill();
+      }
     }
-    // Objective: a pulsing ring.
-    const t = g.missions.target();
-    if (t) {
-      const pulse = 5 + Math.sin(g.time * 4) * 2;
-      ctx.strokeStyle = '#ff4fd8';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.arc(X(t.x), Z(t.z), pulse, 0, Math.PI * 2);
-      ctx.stroke();
+    // Mission target.
+    if (G.missions) {
+      const t = G.missions.target();
+      if (t) {
+        mapCtx.fillStyle = '#ff4a4a';
+        mapCtx.beginPath();
+        mapCtx.arc(sx(t.x), sz(t.z), 4, 0, Math.PI * 2);
+        mapCtx.fill();
+        mapCtx.strokeStyle = '#ff4a4a';
+        mapCtx.beginPath();
+        mapCtx.arc(sx(t.x), sz(t.z), 7, 0, Math.PI * 2);
+        mapCtx.stroke();
+      }
     }
-    // Traffic, cops, cruisers, helicopter.
-    ctx.fillStyle = '#c8c8c8';
-    for (const car of g.traffic.cars) ctx.fillRect(X(car.x) - 1, Z(car.z) - 1, 2, 2);
-    ctx.fillStyle = '#5ab8ff';
-    for (const cop of g.police.cops) ctx.fillRect(X(cop.x) - 1.5, Z(cop.z) - 1.5, 3, 3);
-    for (const car of g.police.cars) ctx.fillRect(X(car.x) - 2, Z(car.z) - 2, 4, 4);
-    if (g.police.heli) {
-      ctx.fillStyle = '#ffd23a';
-      ctx.beginPath();
-      ctx.arc(X(g.police.heli.x), Z(g.police.heli.z), 3.5, 0, Math.PI * 2);
-      ctx.fill();
+    // Police.
+    if (G.police) {
+      mapCtx.fillStyle = '#4a8aff';
+      for (const c of G.police.cops) {
+        mapCtx.fillRect(sx(c.x) - 2, sz(c.z) - 2, 4, 4);
+      }
+      for (const c of G.police.cars) {
+        mapCtx.fillRect(sx(c.x) - 2, sz(c.z) - 2, 4, 4);
+      }
     }
-    // Milo: a white arrow pointing along his heading.
-    const px = X(g.player.x);
-    const pz = Z(g.player.z);
-    const hx = Math.sin(g.player.angle);
-    const hz = Math.cos(g.player.angle);
-    const bx = -hz;
-    const bz = hx;
-    ctx.fillStyle = '#ffffff';
-    ctx.beginPath();
-    ctx.moveTo(px + hx * 8, pz + hz * 8);
-    ctx.lineTo(px - hx * 5 + bx * 5, pz - hz * 5 + bz * 5);
-    ctx.lineTo(px - hx * 5 - bx * 5, pz - hz * 5 - bz * 5);
-    ctx.closePath();
-    ctx.fill();
+    // The player, always on top.
+    mapCtx.fillStyle = '#ffffff';
+    mapCtx.beginPath();
+    mapCtx.arc(sx(G.world.playerX), sz(G.world.playerZ), 4, 0, Math.PI * 2);
+    mapCtx.fill();
+    mapCtx.strokeStyle = '#000000';
+    mapCtx.beginPath();
+    mapCtx.arc(sx(G.world.playerX), sz(G.world.playerZ), 4, 0, Math.PI * 2);
+    mapCtx.stroke();
   }
 
-  showBanner(title, sub) {
-    this.bannerTitleEl.textContent = title;
-    this.bannerSubEl.textContent = sub || '';
-    this.bannerEl.style.opacity = '1';
-    clearTimeout(this.bannerTimer);
-    this.bannerTimer = setTimeout(() => {
-      this.bannerEl.style.opacity = '0';
-    }, 3600);
+  function update(dt) {
+    if (toastT > 0) {
+      toastT -= dt;
+      if (toastT <= 0 && el.toast) el.toast.style.opacity = '0';
+    }
+    if (el.cash) el.cash.textContent = formatCash(G.world.cash);
+    if (el.stars) el.stars.textContent = starsText(G.police ? G.police.stars : 0);
+    if (el.health) el.health.style.width = Math.max(0, G.player.health) + '%';
+    if (el.armor) el.armor.style.width = Math.max(0, G.world.armor) + '%';
+    if (el.station && G.audio) el.station.textContent = '♪ ' + G.audio.stationName;
+    if (el.rank) el.rank.textContent = rankFor(G.totalEarned || 0);
+    if (el.speed) {
+      el.speed.textContent = G.world.inCar
+        ? Math.round(Math.abs(G.world.playerSpeed) * 2.2) + ' mph'
+        : '';
+    }
+    if (G.missions && G.missions.active) {
+      const m = G.missions.active;
+      if (el.mission) el.mission.textContent = m.title;
+      if (el.objective) {
+        const t = G.missions.target();
+        el.objective.textContent = t
+          ? 'Objective ' + Math.round(Math.hypot(t.x - G.world.playerX, t.z - G.world.playerZ)) + 'm away'
+          : m.def.desc;
+      }
+      if (el.timer) el.timer.textContent = m.timer > 0 ? fmtTime(m.timer) : '';
+    } else if (el.mission) {
+      el.mission.textContent = G.missions && G.missions.storyDone
+        ? 'Story complete — free roam'
+        : 'No job. Visit Cleo or take the next job.';
+      if (el.objective) el.objective.textContent = '';
+      if (el.timer) el.timer.textContent = '';
+    }
+    drawMinimap();
   }
 
-  toast(text) {
-    this.toastEl.textContent = text;
-    this.toastEl.style.opacity = '1';
-    clearTimeout(this.toastTimer);
-    this.toastTimer = setTimeout(() => {
-      this.toastEl.style.opacity = '0';
-    }, 2400);
-  }
-
-  /** A short flash message: the same toast, under the name the jobs use. */
-  flash(text) {
-    this.toast(text);
-  }
-
-  showTitle() {
-    this.menuEl.style.display = 'flex';
-  }
-
-  hideTitle() {
-    this.menuEl.style.display = 'none';
-  }
-
-  showPause() {
-    this.pauseEl.style.display = 'flex';
-  }
-
-  hidePause() {
-    this.pauseEl.style.display = 'none';
-  }
-
-  showBusted(text) {
-    this.bustedTextEl.textContent = text;
-    this.bustedEl.style.display = 'flex';
-  }
-
-  hideBusted() {
-    this.bustedEl.style.display = 'none';
-  }
+  return { notify, showShop, showMenu, showBusted, showWasted, update, rankFor };
 }

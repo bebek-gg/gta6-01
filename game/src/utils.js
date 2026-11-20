@@ -1,60 +1,65 @@
-// utils.js — small shared helpers for SOLMAR. No game logic lives here,
-// just the arithmetic and formatting every other module reaches for.
-
-/** Clamp v into [lo, hi]. */
-export function clamp(v, lo, hi) {
-  return v < lo ? lo : v > hi ? hi : v;
+// utils.js — small pure helpers for SOLMAR: math, angles and random picks.
+// No game state lives here; every other module imports what it needs.
+export function clamp(v, a, b) {
+  return v < a ? a : v > b ? b : v;
 }
 
-/** Linear interpolation between a and b. */
 export function lerp(a, b, t) {
   return a + (b - a) * t;
 }
 
-/** A random float. rand(10) is [0, 10); rand(4, 9) is [4, 9). */
-export function rand(lo, hi) {
-  if (hi === undefined) {
-    hi = lo;
-    lo = 0;
-  }
-  return lo + Math.random() * (hi - lo);
+export function dist2(ax, az, bx, bz) {
+  const dx = ax - bx;
+  const dz = az - bz;
+  return Math.sqrt(dx * dx + dz * dz);
 }
 
-/** A random integer in [lo, hi]. */
-export function randi(lo, hi) {
-  return Math.floor(rand(lo, hi + 1));
+export function rand(a, b) {
+  return a + Math.random() * (b - a);
 }
 
-/** One random element of an array. */
+export function randInt(a, b) {
+  return Math.floor(rand(a, b + 1));
+}
+
 export function pick(arr) {
   return arr[Math.floor(Math.random() * arr.length)];
 }
 
-/** Flat (x, z) distance between two points. */
-export function dist2(x1, z1, x2, z2) {
-  return Math.hypot(x2 - x1, z2 - z1);
-}
-
-/** Wrap an angle into (-PI, PI]. */
 export function wrapAngle(a) {
   while (a > Math.PI) a -= Math.PI * 2;
-  while (a <= -Math.PI) a += Math.PI * 2;
+  while (a < -Math.PI) a += Math.PI * 2;
   return a;
 }
 
-/** Move angle a toward target by at most maxStep radians. */
-export function turnToward(a, target, maxStep) {
-  const d = wrapAngle(target - a);
-  return a + clamp(d, -maxStep, maxStep);
+export function angleLerp(a, b, t) {
+  return a + wrapAngle(b - a) * t;
 }
 
-/** "$1,500" style money text. */
-export function cashText(n) {
+export function formatCash(n) {
   return '$' + Math.round(n).toLocaleString('en-US');
 }
 
-/** "2:30" style countdown text for a number of seconds. */
-export function clockText(seconds) {
-  const s = Math.max(0, Math.ceil(seconds));
-  return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+export function starsText(n) {
+  return '★'.repeat(n) + '☆'.repeat(Math.max(0, 5 - n));
+}
+
+export function pad2(n) {
+  return String(n).padStart(2, '0');
+}
+
+export function fmtTime(sec) {
+  const s = Math.max(0, Math.ceil(sec));
+  return pad2(Math.floor(s / 60)) + ':' + pad2(s % 60);
+}
+
+export function shuffle(arr) {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const t = a[i];
+    a[i] = a[j];
+    a[j] = t;
+  }
+  return a;
 }
